@@ -70,6 +70,7 @@
 
   <div id="more" class="popover">
     <button data-act="todo"><svg class="ic" viewBox="0 0 24 24"><rect x="4" y="5" width="5" height="5" rx="1.2"/><path d="M5.2 7.5l1.2 1.2 2-2.4" stroke-width="1.4"/><path d="M12.5 7.5H20M12.5 16.5H20"/><rect x="4" y="14" width="5" height="5" rx="1.2"/></svg><span data-i18n="mTodo">Checklist</span></button>
+    <button data-act="grille"><svg class="ic" viewBox="0 0 24 24"><path d="M4 6h9M4 12h16M4 18h6"/><path d="M17 4v4M9 10v4M11 16v4"/></svg><span data-i18n="mGrille">Grille de morceau</span></button>
     <button data-act="cal"><svg class="ic" viewBox="0 0 24 24"><rect x="4" y="6" width="16" height="14" rx="2"/><path d="M4 10h16M8 4v4M16 4v4"/></svg><span data-i18n="mCal">Calendrier</span></button>
     <button data-act="bg"><svg class="ic" viewBox="0 0 24 24"><path d="M12 3.2s6 6.6 6 10.8a6 6 0 0 1-12 0c0-4.2 6-10.8 6-10.8z"/></svg><span data-i18n="mBg">Fond du board</span></button>
     <button data-act="arrange"><svg class="ic" viewBox="0 0 24 24"><rect x="4" y="4" width="7" height="7" rx="1.5"/><rect x="13" y="4" width="7" height="7" rx="1.5"/><rect x="4" y="13" width="7" height="7" rx="1.5"/><rect x="13" y="13" width="7" height="7" rx="1.5"/></svg><span data-i18n="mArrange">Ranger le board</span></button>
@@ -192,12 +193,15 @@
     </div>
   </div>
 
+  <div id="grille" class="hidden"></div>
+
   <div id="toast" class="hidden"></div>
   <div id="drop-overlay" data-i18n="dropHere">Dépose tes fichiers ici</div>
 
   <input type="file" id="file-images" accept="image/*" multiple hidden>
   <input type="file" id="file-board" accept=".refy,.json,application/json" hidden>
   <input type="file" id="file-doc" accept=".pdf,.txt,.md,application/pdf,text/plain" multiple hidden>
+  <input type="file" id="file-plan" accept=".json,application/json" hidden>
 
 <script src="app.js" defer></script>
 </body>

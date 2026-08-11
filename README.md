@@ -23,6 +23,7 @@ Collect images, arrange them freely, then lock the screen and trace right on you
 - **Draw & write** — a freehand pencil (color, weight, undo) for arrows and annotations, plus proper text blocks: typed, resizable, rotatable, serif or sans.
 - **Import almost anything** — photos, PDFs (pages become images), plain-text notes, drag & drop, or paste. Pasted text becomes a text block.
 - **Trace mode** — per-image black & white, contrast, opacity and **edge extraction** to turn any photo into clean outlines; then the padlock freezes the whole screen and keeps the display awake. Hold it one second to unlock.
+- **Song plans** — drop a `.json` arrangement on the board (or just paste it) and it becomes a card: title, tempo, section strip, energy curve. Double-tap it for the full screen — timeline, list view, and a playhead that runs at the tempo and tells you which section you are in and when the next one lands.
 - **A quiet calendar** — a local agenda in the ··· menu. Dates and events live in Refy only; there is no sync and no account.
 - **Backups on your device** — export any board as a portable `.refy.json` file and re-import it anywhere (imports become a new board, nothing gets overwritten).
 - **Made for iPad** — install it from Safari as a full-screen app, works offline, imports straight from your photo library. Large photos are downscaled on import to keep the tab fast.
@@ -45,6 +46,33 @@ Collect images, arrange them freely, then lock the screen and trace right on you
 | Fit everything | frame button | `F` |
 | Trace mode | padlock (hold ~1 s to unlock) | padlock |
 | Delete selection | trash button | `Delete` |
+
+## Song plan format
+
+A plan is written in bars, never in seconds: timecodes are derived from the tempo, so changing
+the BPM updates the whole grid. Colours are not part of the format — the screen is black and
+white, and each section takes its shade from its own energy.
+
+```json
+{
+  "title": "Quantum In Se",
+  "bpm": 100,
+  "meter": [4, 4],
+  "bars": 208,
+  "phrase": 16,
+  "notes": "free text",
+  "sections": [{ "bar": 1, "name": "Intro" }],
+  "lanes": [{ "name": "Kick", "clips": [{ "from": 49, "to": 144, "fade": "grow", "label": "double-time", "accent": false }] }],
+  "markers": [{ "bar": 161, "label": "2nd chord" }],
+  "zones": [{ "from": 49, "to": 200, "label": "mixable range" }],
+  "energy": [{ "bar": 1, "v": 0.05 }, { "bar": 129, "v": 0.9 }],
+  "history": [{ "title": "Previous version", "bars": 200, "sections": [{ "from": 1, "to": 24, "name": "pad + field recording" }] }]
+}
+```
+
+`from` and `to` are inclusive bars. A section runs until the next one starts. `fade` is
+`in`, `out`, `both` or `grow`. `v` runs from 0 to 1 — one point per inflection, not per bar.
+Only `title`, `bpm` and `bars` are required.
 
 ## Install on iPad
 

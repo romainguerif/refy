@@ -50,6 +50,10 @@ const I18N_FR = {
   pngWorking: 'Rendu du board…', pngDone: 'PNG exporté', pngFail: 'Échec de l\'export PNG', boardEmpty: 'Board vide',
   presToast: 'Présentation — l\'œil en bas à droite pour sortir',
   lockToast: 'Verrouillé — maintiens le cadenas pour déverrouiller', unlockToast: 'Déverrouillé',
+  gGrid: 'Grille', gList: 'Liste', gCopy: 'Copier le texte', gCopied: 'Texte copie',
+  gIn: 'dans', gLast: 'derniere section', gBar: 'mesure', gClose: 'Fermer',
+  gBadPlan: 'Ce fichier n\'est pas une grille de morceau',
+  gAdded: n => `Grille « ${n} » posee — double-tape pour l\'ouvrir`,
   renameTitle: 'Renommer', deleteTitle: 'Supprimer', linkTitle: 'Poser un lien sur le board actuel',
   linkPosed: n => `Lien vers « ${n} » posé — double-tape pour l'ouvrir`,
   namePrompt: 'Nom du board', delConfirm: n => `Supprimer « ${n} » et tout son contenu ?`,
@@ -84,6 +88,11 @@ const I18N_EN = {
   pngWorking: 'Rendering board…', pngDone: 'PNG exported', pngFail: 'PNG export failed', boardEmpty: 'Empty board',
   presToast: 'Presentation — tap the eye bottom right to exit',
   lockToast: 'Locked — hold the padlock to unlock', unlockToast: 'Unlocked',
+  gGrid: 'Grid', gList: 'List', gCopy: 'Copy as text', gCopied: 'Text copied',
+  gIn: 'in', gLast: 'last section', gBar: 'bar', gClose: 'Close',
+  gBadPlan: 'This file is not a song plan',
+  gAdded: n => `Plan “${n}” dropped — double-tap to open it`,
+  mGrille: 'Song plan',
   renameTitle: 'Rename', deleteTitle: 'Delete', linkTitle: 'Drop a link on the current board',
   linkPosed: n => `Link to “${n}” added — double-tap to open it`,
   namePrompt: 'Board name', delConfirm: n => `Delete “${n}” and all its content?`,
@@ -145,7 +154,7 @@ const $ = id => document.getElementById(id);
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 const uid = () => (crypto.randomUUID ? crypto.randomUUID() : 'id-' + Date.now() + '-' + Math.random().toString(36).slice(2));
 const toWorld = (sx, sy) => ({ x: (sx - view.x) / view.s, y: (sy - view.y) / view.s });
-const MEASURED = { text: 1, todo: 1, palette: 1, link: 1 }; // hauteur mesurée dans le DOM
+const MEASURED = { text: 1, todo: 1, palette: 1, link: 1, grille: 1 }; // hauteur mesurée dans le DOM
 const itemH = it => MEASURED[it.type] ? (it.el ? it.el.offsetHeight : it.w / 2) : it.w / it.ar;
 const itemCenter = it => ({ x: it.x + it.w / 2, y: it.y + itemH(it) / 2 });
 const HALF_PI = Math.PI / 2;
@@ -270,6 +279,7 @@ function serializeItem(it) {
   if (it.type === 'todo') return { ...base, size: it.size, entries: it.entries.map(e => ({ t: e.t, done: !!e.done })) };
   if (it.type === 'palette') return { ...base, colors: it.colors };
   if (it.type === 'link') return { ...base, target: it.target, name: it.name };
+  if (it.type === 'grille') return { ...base, size: it.size, plan: it.plan };
   return base;
 }
 function saveState() {
@@ -357,10 +367,14 @@ function makeItemEl(it) {
     el.innerHTML = '<svg class="ic lic" viewBox="0 0 24 24"><rect x="4" y="4" width="12" height="12" rx="2"/><path d="M20 9v9a2 2 0 0 1-2 2H9"/></svg>'
       + '<span class="lname"></span>'
       + '<svg class="ic larrow" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg>';
+  } else if (it.type === 'grille') {
+    el.innerHTML = '<span class="gname"></span><span class="gmeta"></span>'
+      + '<span class="gstrip"></span><span class="gspark"></span>';
   }
   addHandles(el);
   if (it.type === 'todo') updateTodoDOM(it, el);
   if (it.type === 'link') updateLinkDOM(it, el);
+  if (it.type === 'grille') updateGrilleDOM(it, el);
   return el;
 }
 
@@ -402,7 +416,7 @@ function renderItem(it) {
     tx.style.fontSize = it.size + 'px';
     tx.style.color = it.color;
     tx.classList.toggle('serif', !!it.serif);
-  } else if (it.type === 'todo' || it.type === 'palette' || it.type === 'link') {
+  } else if (it.type === 'todo' || it.type === 'palette' || it.type === 'link' || it.type === 'grille') {
     it.el.style.fontSize = (it.size || it.w / 14) + 'px';
   }
 }
@@ -1545,6 +1559,7 @@ vp.addEventListener('pointerdown', e => {
         it._lastTap = 0;
         if (it.type === 'text') { select(it); editText(it); return; }
         if (it.type === 'link') { openLinkTarget(it); return; }
+        if (it.type === 'grille') { select(it); openGrille(it); return; }
         if (it.type === 'todo') {
           const row = e.target.closest('.trow:not(.tadd)');
           if (row) { select(it); editTodoRow(it, +row.dataset.i); return; }
@@ -1931,6 +1946,7 @@ $('more').addEventListener('click', e => {
     renderItem(it);
     editTodoRow(it, 0);
   }
+  else if (act === 'grille') $('file-plan').click();
   else if (act === 'help') $('help').classList.remove('hidden');
 });
 $('btn-adj').addEventListener('click', () => {
@@ -2661,6 +2677,7 @@ document.addEventListener('keydown', e => {
     if (tool === 'draw') setTool(null);
     select(null);
     $('help').classList.add('hidden');
+    if (!$('grille').classList.contains('hidden')) closeGrille();
     closePopovers();
     closeLibrary();
     closeCalendar();
@@ -2677,6 +2694,17 @@ document.addEventListener('paste', e => {
   const text = e.clipboardData ? e.clipboardData.getData('text/plain') : '';
   if (text && text.trim()) {
     e.preventDefault();
+    if (text.trim()[0] === '{') {
+      let data = null;
+      try { data = JSON.parse(text); } catch (_) {}
+      if (isPlan(data)) {
+        const g = addGrilleItem(data);
+        select(g);
+        scheduleSave();
+        toast(tr('gAdded')(g.plan.title));
+        return;
+      }
+    }
     const it = addTextItem(text.trim().slice(0, 20000), { size: 16 / view.s, w: 340 / view.s });
     select(it);
     scheduleSave();
@@ -2753,3 +2781,319 @@ boot();
 if ('serviceWorker' in navigator && location.protocol === 'https:') {
   addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
 }
+
+/* ============================== grille de morceau ==============================
+   Un plan d'arrangement posé sur le board. Tout est écrit en mesures :
+   les timecodes se déduisent du BPM, donc changer le tempo met la grille à jour.
+   La carte reste compacte ; le détail vit en plein écran (double-tape). */
+
+function isPlan(o) {
+  return !!o && typeof o === 'object' && !Array.isArray(o)
+    && typeof o.title === 'string' && typeof o.bpm === 'number' && typeof o.bars === 'number'
+    && o.bpm > 0 && o.bars > 0;
+}
+function normPlan(raw) {
+  const p = { ...raw };
+  p.meter = Array.isArray(p.meter) && p.meter.length ? p.meter : [4, 4];
+  p.phrase = p.phrase || 16;
+  p.sections = (p.sections || []).slice().sort((a, b) => a.bar - b.bar);
+  p.lanes = (p.lanes || []).map(l => ({ name: l.name || '', clips: l.clips || [] }));
+  p.energy = (p.energy || []).slice().sort((a, b) => a.bar - b.bar);
+  p.markers = p.markers || [];
+  p.zones = p.zones || [];
+  p.history = p.history || [];
+  return p;
+}
+const planBarSec = p => (60 / p.bpm) * (p.meter[0] || 4);
+const planLen = p => p.bars * planBarSec(p);
+const planBarTime = (p, bar) => (bar - 1) * planBarSec(p);
+const planBarAt = (p, sec) => clamp(Math.floor(sec / planBarSec(p)) + 1, 1, p.bars);
+const planPct = (p, bar) => ((bar - 1) / p.bars) * 100;
+const planSpan = (p, a, b) => ((b - a + 1) / p.bars) * 100;
+function planTime(sec) {
+  sec = Math.max(0, Math.round(sec));
+  return Math.floor(sec / 60) + ':' + String(sec % 60).padStart(2, '0');
+}
+function planSections(p) {
+  const s = p.sections;
+  return s.map((x, i) => ({ ...x, from: x.bar, to: i + 1 < s.length ? s[i + 1].bar - 1 : p.bars }));
+}
+function planEnergyAt(p, bar) {
+  const e = p.energy;
+  if (!e.length) return .5;
+  if (bar <= e[0].bar) return e[0].v;
+  for (let i = 1; i < e.length; i++) {
+    if (bar <= e[i].bar) {
+      const a = e[i - 1], b = e[i];
+      return a.v + (b.v - a.v) * ((bar - a.bar) / ((b.bar - a.bar) || 1));
+    }
+  }
+  return e[e.length - 1].v;
+}
+/* une section n'a pas de couleur : elle a une valeur, celle de son énergie moyenne */
+function planLevel(p, s) {
+  const step = Math.max(1, Math.round((s.to - s.from) / 8));
+  let sum = 0, n = 0;
+  for (let b = s.from; b <= s.to; b += step) { sum += planEnergyAt(p, b); n++; }
+  return clamp(n ? sum / n : .5, 0, 1);
+}
+const grayPaper = v => { const l = Math.round(206 - v * 158); return `rgb(${l},${l},${l})`; };
+const grayDark = v => { const l = Math.round(24 + v * 52); return `rgb(${l},${l},${l})`; };
+
+/* ce qui entre, ce qui tient, ce qui sort, section par section */
+function planLaneStates(p, s) {
+  const inn = [], keep = [], out = [], notes = [];
+  for (const l of p.lanes) {
+    const cl = l.clips.filter(c => c.to >= s.from && c.from <= s.to);
+    if (!cl.length) continue;
+    for (const c of cl) if (c.label) notes.push(c.label);
+    if (cl.some(c => c.from >= s.from && c.from <= s.to)) inn.push(l.name);
+    else if (cl.some(c => c.to >= s.from && c.to <= s.to && c.to < p.bars)) out.push(l.name);
+    else keep.push(l.name);
+  }
+  for (const m of p.markers) if (m.bar >= s.from && m.bar <= s.to) notes.push(m.label + ' — mesure ' + m.bar);
+  return { inn, keep, out, notes };
+}
+function planText(p) {
+  const L = [`${p.title.toUpperCase()} — ${p.bpm} BPM — ${p.bars} mesures — ${planTime(planLen(p))}`, ''];
+  for (const s of planSections(p)) {
+    const st = planLaneStates(p, s);
+    L.push(`${planTime(planBarTime(p, s.from)).padStart(5)}  ${String(s.from).padStart(3)} → ${String(s.to).padStart(3)}  ${s.name}`);
+    const parts = [...st.inn.map(x => '+ ' + x), ...st.keep, ...st.out.map(x => '− ' + x)];
+    if (parts.length) L.push('              ' + parts.join(', '));
+    for (const n of st.notes) L.push('              (' + n + ')');
+  }
+  return L.join('\n');
+}
+
+/* ---------- la carte sur le board ---------- */
+function addGrilleItem(plan, at) {
+  const p = normPlan(plan);
+  const pos = at || toWorld(innerWidth / 2, innerHeight / 2);
+  const w = 340 / view.s;
+  const it = { id: uid(), type: 'grille', x: pos.x - w / 2, y: pos.y - w / 5, w, rot: 0, size: w / 19, plan: p };
+  addItem(it);
+  return it;
+}
+function grilleSpark(p) {
+  if (p.energy.length < 2) return '';
+  const pts = p.energy.map(e => `${(((e.bar - 1) / p.bars) * 100).toFixed(1)},${(24 - clamp(e.v, 0, 1) * 22).toFixed(1)}`).join(' ');
+  return `<svg viewBox="0 0 100 24" preserveAspectRatio="none"><polyline points="${pts}"/></svg>`;
+}
+function updateGrilleDOM(it, el) {
+  const p = it.plan, root = el || it.el;
+  root.querySelector('.gname').textContent = p.title;
+  root.querySelector('.gmeta').textContent =
+    `${p.bpm} BPM · ${p.bars} mesures · ${planTime(planLen(p))}`;
+  root.querySelector('.gstrip').innerHTML = planSections(p)
+    .map(s => `<i style="width:${planSpan(p, s.from, s.to)}%;background:${grayPaper(planLevel(p, s))}"></i>`).join('');
+  root.querySelector('.gspark').innerHTML = grilleSpark(p);
+}
+
+/* ---------- le plein écran ---------- */
+const gview = { it: null, mode: 'liste', zoom: 1, playing: false, t0: 0, elapsed: 0, bar: -1, key: '' };
+let gRaf = null;
+
+function grilleTimeline(p) {
+  const secs = planSections(p);
+  const row = (name, inner, cls) =>
+    `<div class="grow ${cls || ''}"><span class="gn">${name}</span><span class="gt">${inner}</span></div>`;
+
+  const sections = secs.map((s, i) =>
+    `<b class="gsec" data-si="${i}" style="left:${planPct(p, s.from)}%;width:${planSpan(p, s.from, s.to)}%;background:${grayDark(planLevel(p, s))}"><em>${s.name}</em></b>`).join('');
+
+  const ruler = secs.map(s =>
+    `<b class="gtick" style="left:${planPct(p, s.from)}%">${planTime(planBarTime(p, s.from))}</b>`).join('');
+
+  const energy = p.energy.length > 1
+    ? `<svg viewBox="0 0 1000 100" preserveAspectRatio="none"><polyline vector-effect="non-scaling-stroke" points="${
+        p.energy.map(e => `${(((e.bar - 1) / p.bars) * 1000).toFixed(1)},${(100 - clamp(e.v, 0, 1) * 92).toFixed(1)}`).join(' ')}"/></svg>`
+    : '';
+
+  const lanes = p.lanes.map(l => row(l.name, `<b class="glane"></b>` + l.clips.map(c => {
+    const fade = c.fade === 'grow' ? 'g' : c.fade === 'in' ? 'i' : c.fade === 'out' ? 'o' : c.fade === 'both' ? 'b' : '';
+    const lab = c.label ? `<b class="gclab" style="left:${planPct(p, c.from) + planSpan(p, c.from, c.to) / 2}%">${c.label}</b>` : '';
+    return `<b class="gclip ${c.accent ? 'acc' : ''} ${fade ? 'f' + fade : ''}" style="left:${planPct(p, c.from)}%;width:${planSpan(p, c.from, c.to)}%"></b>` + lab;
+  }).join(''))).join('');
+
+  const zones = p.zones.map(z => row('', `<b class="gzone" style="left:${planPct(p, z.from)}%;width:${planSpan(p, z.from, z.to)}%"></b>`
+    + `<b class="gzlab" style="left:${planPct(p, z.from) + planSpan(p, z.from, z.to) / 2}%">${z.label || ''}</b>`, 'gz2')).join('');
+
+  const marks = p.markers.map(m => `<b class="gmark" style="left:${planPct(p, m.bar)}%"><em>${m.label} — ${m.bar}</em></b>`).join('');
+
+  return `<div class="gscroll"><div class="ginner" style="--pw:${(100 * p.phrase / p.bars).toFixed(4)}%">
+    ${row('', sections, 'gs')}
+    ${row('', ruler, 'gr')}
+    ${energy ? row('Énergie', energy, 'ge') : ''}
+    ${lanes}${zones}
+    <span class="gover">${marks}<b class="ghead"></b></span>
+    <span class="gtap"></span>
+  </div></div>`;
+}
+
+function grilleList(p) {
+  return planSections(p).map((s, i) => {
+    const st = planLaneStates(p, s);
+    const parts = [...st.inn.map(x => `<b>+ ${x}</b>`), ...st.keep, ...st.out.map(x => `<s>− ${x}</s>`)];
+    return `<button class="gli" data-si="${i}">
+      <span class="glh"><span class="glt">${planTime(planBarTime(p, s.from))}</span>
+        <span class="gln">${s.name}</span><span class="glb">${s.from} → ${s.to}</span></span>
+      ${parts.length ? `<span class="gli-in">${parts.join(', ')}</span>` : ''}
+      ${st.notes.map(n => `<span class="gli-note">${n}</span>`).join('')}
+    </button>`;
+  }).join('');
+}
+
+function renderGrille() {
+  const p = gview.it.plan;
+  const hist = p.history.map(h => `<h4>${h.title || 'Version précédente'}${h.bars ? ' — ' + h.bars + ' mesures' : ''}</h4>`
+    + (h.note ? `<p class="ghint">${h.note}</p>` : '')
+    + (h.sections || []).map(s => `<div class="ghl"><span>${s.from} → ${s.to}</span><span>${planTime(planBarTime(p, s.from))}</span><span>${s.name}</span></div>`).join('')).join('');
+
+  $('grille').innerHTML = `
+    <div class="ghead-bar">
+      <button class="gclose" title="${tr('gClose')}"><svg class="ic" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+      <span class="gtitle">${p.title}</span>
+      <span class="gsub">${p.bpm} BPM · ${p.bars} mesures · ${planTime(planLen(p))}</span>
+    </div>
+    <div class="gbar2">
+      <span class="gseg">
+        <button data-mode="grille" class="${gview.mode === 'grille' ? 'on' : ''}">${tr('gGrid')}</button>
+        <button data-mode="liste" class="${gview.mode === 'liste' ? 'on' : ''}">${tr('gList')}</button>
+      </span>
+      ${gview.mode === 'grille' ? [1, 2, 4].map(z => `<button class="gz${gview.zoom === z ? ' on' : ''}" data-zoom="${z}">×${z}</button>`).join('') : ''}
+      <button class="gz gcopy">${tr('gCopy')}</button>
+    </div>
+    <div class="gbody">
+      ${gview.mode === 'grille' ? grilleTimeline(p) : ''}
+      <div class="glist">${grilleList(p)}</div>
+      ${p.notes ? `<p class="gnotes">${p.notes}</p>` : ''}
+      ${hist ? `<div class="ghist">${hist}</div>` : ''}
+    </div>
+    <div class="gtrans">
+      <button class="gplay">${gview.playing ? '❚❚' : '▶'}</button>
+      <span class="ginfo"><b class="gnow"></b><i class="gnext"></i></span>
+      <span class="gclock"></span>
+    </div>`;
+  $('grille').style.setProperty('--gzoom', gview.zoom);
+  paintGrille(true);
+}
+
+function paintGrille(full) {
+  const p = gview.it.plan, secs = planSections(p);
+  const bar = planBarAt(p, gview.elapsed);
+  const cur = secs.findIndex(s => bar >= s.from && bar <= s.to);
+  const nx = secs.find(s => s.from > bar);
+  const g = $('grille');
+  const head = g.querySelector('.ghead');
+  if (head) {
+    head.style.left = (clamp(gview.elapsed / planLen(p), 0, 1) * 100) + '%';
+    head.classList.toggle('on', gview.elapsed > 0 || gview.playing);
+  }
+  const nextEl = g.querySelector('.gnext');
+  if (nextEl) nextEl.textContent = nx
+    ? `${nx.name} ${tr('gIn')} ${planTime(planBarTime(p, nx.from) - gview.elapsed)}`
+    : tr('gLast');
+  const clock = g.querySelector('.gclock');
+  if (clock) clock.innerHTML = `${planTime(gview.elapsed)}<i>/ ${planTime(planLen(p))}</i><em>${tr('gBar')} ${bar}</em>`;
+  if (!full) return;
+  const nowEl = g.querySelector('.gnow');
+  if (nowEl) nowEl.textContent = cur >= 0 ? secs[cur].name : '—';
+  for (const el of g.querySelectorAll('[data-si]')) el.classList.toggle('now', +el.dataset.si === cur);
+}
+
+function grilleTick() {
+  if (!gview.playing) return;
+  const p = gview.it.plan;
+  gview.elapsed = (performance.now() - gview.t0) / 1000;
+  if (gview.elapsed >= planLen(p)) { gview.elapsed = planLen(p); stopGrille(); return; }
+  const bar = planBarAt(p, gview.elapsed);
+  const key = bar + '|' + Math.floor(gview.elapsed);
+  if (key !== gview.key) { paintGrille(bar !== gview.bar); gview.bar = bar; gview.key = key; }
+  else paintGrille(false);
+  autoScrollGrille();
+  gRaf = requestAnimationFrame(grilleTick);
+}
+function autoScrollGrille() {
+  if (gview.zoom === 1) return;
+  const sc = $('grille').querySelector('.gscroll');
+  if (!sc) return;
+  const inner = sc.firstElementChild;
+  const x = inner.clientWidth * (gview.elapsed / planLen(gview.it.plan));
+  const target = x - sc.clientWidth / 2;
+  if (Math.abs(sc.scrollLeft - target) > 8) sc.scrollLeft = target;
+}
+async function playGrille() {
+  gview.playing = true;
+  gview.t0 = performance.now() - gview.elapsed * 1000;
+  gview.bar = -1; gview.key = '';
+  const b = $('grille').querySelector('.gplay');
+  if (b) { b.textContent = '❚❚'; b.classList.add('on'); }
+  await acquireWakeLock();
+  gRaf = requestAnimationFrame(grilleTick);
+}
+function stopGrille() {
+  gview.playing = false;
+  if (gRaf) cancelAnimationFrame(gRaf);
+  gRaf = null;
+  const b = $('grille').querySelector('.gplay');
+  if (b) { b.textContent = '▶'; b.classList.remove('on'); }
+  if (!locked) releaseWakeLock();
+  paintGrille(true);
+}
+function seekGrille(sec) {
+  const p = gview.it.plan;
+  gview.elapsed = clamp(sec, 0, planLen(p));
+  if (gview.playing) gview.t0 = performance.now() - gview.elapsed * 1000;
+  gview.bar = -1; gview.key = '';
+  paintGrille(true);
+}
+function openGrille(it) {
+  gview.it = it;
+  gview.elapsed = 0; gview.zoom = 1;
+  gview.mode = innerWidth >= 760 ? 'grille' : 'liste';
+  renderGrille();
+  $('grille').classList.remove('hidden');
+}
+function closeGrille() {
+  stopGrille();
+  $('grille').classList.add('hidden');
+  gview.it = null;
+}
+
+$('grille').addEventListener('click', e => {
+  const p = gview.it && gview.it.plan;
+  if (!p) return;
+  if (e.target.closest('.gclose')) { closeGrille(); return; }
+  if (e.target.closest('.gplay')) { gview.playing ? stopGrille() : playGrille(); return; }
+  if (e.target.closest('.gcopy')) {
+    navigator.clipboard.writeText(planText(p)).then(() => toast(tr('gCopied'))).catch(() => {});
+    return;
+  }
+  const mode = e.target.closest('[data-mode]');
+  if (mode) { gview.mode = mode.dataset.mode; renderGrille(); return; }
+  const z = e.target.closest('[data-zoom]');
+  if (z) { gview.zoom = +z.dataset.zoom; renderGrille(); return; }
+  const si = e.target.closest('[data-si]');
+  if (si) { seekGrille(planBarTime(p, planSections(p)[+si.dataset.si].from)); return; }
+  const tap = e.target.closest('.gtap');
+  if (tap) {
+    const r = tap.getBoundingClientRect();
+    seekGrille(((e.clientX - r.left) / r.width) * planLen(p));
+  }
+});
+
+$('file-plan').addEventListener('change', e => {
+  const f = e.target.files[0];
+  e.target.value = '';
+  if (!f) return;
+  f.text().then(txt => {
+    let data = null;
+    try { data = JSON.parse(txt); } catch (_) {}
+    if (!isPlan(data)) { toast(tr('gBadPlan')); return; }
+    const it = addGrilleItem(data);
+    select(it);
+    scheduleSave();
+    openGrille(it);
+  });
+});

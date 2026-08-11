@@ -35,7 +35,7 @@ try {
 
 /* ============================== langue ============================== */
 const lang = (navigator.language || 'en').toLowerCase().startsWith('fr') ? 'fr' : 'en';
-const LOCALE = lang === 'fr' ? LOCALE : 'en-GB';
+const LOCALE = lang === 'fr' ? 'fr-FR' : 'en-GB';
 const I18N_FR = {
   saveFull: 'Sauvegarde impossible (stockage plein ?)', imgFull: 'Image non sauvegardée (stockage plein ?)',
   badFormat: 'Format non pris en charge : ', cantImport: 'Impossible d\'importer ',

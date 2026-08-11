@@ -1,14 +1,14 @@
-<sub>Built in collaboration with [Claude](https://claude.com) 🤝</sub>
+<sub>Built in collaboration with [Claude](https://claude.com)</sub>
 
 <div align="center">
 
-# 🖼️ Refy
+# Refy
 
 **A PureRef-style reference board that lives in your browser.**
 
 Collect images, arrange them freely, then lock the screen and trace right on your tablet.
 
-**[✦ Open Refy →](https://romainguerif.github.io/refy/)**
+**[Open Refy →](https://romainguerif.github.io/refy/)**
 
 *No account. No server. No dependencies. One HTML file.*
 

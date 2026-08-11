@@ -66,6 +66,8 @@ const I18N_FR = {
   clearConfirm: 'Supprimer tout le contenu de ce board ?',
   swatches: ['Charbon', 'Graphite', 'Nuit', 'Sauge', 'Papier', 'Blanc'],
   week: ['L', 'M', 'M', 'J', 'V', 'S', 'D'],
+  arranged: 'Board rangé', cropLabel: 'Recadrer', cropFail: 'Recadrage impossible sur cette image',
+  pinTitle: 'Aller à l\'élément épinglé', pinnedGone: 'Élément introuvable',
 };
 const I18N_EN = {
   saveFull: 'Could not save (storage full?)', imgFull: 'Image not saved (storage full?)',
@@ -97,6 +99,9 @@ const I18N_EN = {
   clearConfirm: 'Delete everything on this board?',
   swatches: ['Charcoal', 'Graphite', 'Night', 'Sage', 'Paper', 'White'],
   week: ['M', 'T', 'W', 'T', 'F', 'S', 'S'],
+  arranged: 'Board tidied', cropLabel: 'Crop', cropFail: 'Could not crop this image',
+  pinTitle: 'Go to pinned element', pinnedGone: 'Element not found',
+  mArrange: 'Tidy the board', tbDup: 'Duplicate', cropCancel: 'Cancel', cropOk: 'Crop',
   /* — textes statiques du DOM — */
   tbBoards: 'My boards', tbAdd: 'Add images', tbDraw: 'Pencil', tbText: 'Text', tbRot: 'Rotate 90°',
   tbFlip: 'Mirror horizontally', tbAdj: 'Adjustments', tbDel: 'Delete', tbFit: 'Fit everything',
@@ -113,14 +118,14 @@ const I18N_EN = {
   hpBoards: 'The icon at the left of the bar opens your library: create, rename, delete and switch boards. Everything is saved automatically in the browser.',
   hpAdd: '+ button (photos), drag & drop, paste (<kbd>Ctrl/Cmd V</kbd> — images or text), and “Import a document” in the ··· menu for PDFs and text notes.',
   hpPen: 'The pencil draws freehand (color, weight, undo in the palette); two fingers navigate while drawing. T drops a text block: double-tap to edit it, handles to resize.',
-  hpManip: 'One finger: move. Two fingers on an element: size + rotation (snaps to 0/90/180/270°). Corner handles: size. Top handle: rotation.',
-  hpTrace: 'An image\'s adjustments (sliders icon) offer black & white, contrast, opacity and <b>edge extraction</b>. The padlock freezes the whole screen and keeps it awake — <b>hold it one second</b> to unlock.',
+  hpManip: 'One finger: move. Two fingers on an element: size + rotation (snaps to 0/90/180/270°). Corner handles: size. Top handle: rotation. Duplicate: copy button, <kbd>Cmd/Ctrl D</kbd> or Alt+drag. “Tidy the board” (<kbd>G</kbd>) packs everything into a grid.',
+  hpTrace: 'An image\'s adjustments (sliders icon) offer black & white, contrast, opacity, <b>edge extraction</b> and <b>cropping</b>. The padlock freezes the whole screen and keeps it awake — <b>hold it one second</b> to unlock.',
   hpTodo: 'Checklist in the ··· menu (<kbd>L</kbd>): tap to check, double-tap a line to edit it, Enter adds the next one. The <b>Notes</b> tab of the library gathers text and checklists from every board — tap to jump there.',
-  hpCal: '··· menu or <kbd>C</kbd>: a local agenda, no sync. Each event belongs to the current board; the <b>All</b> view shows every board\'s agenda. Events travel with the board in backups.',
+  hpCal: '··· menu or <kbd>C</kbd>: a local agenda, no sync. Each event belongs to the current board; the <b>All</b> view shows every board\'s agenda. An element selected when adding is <b>pinned</b> to the event — the pin jumps back to it. Events travel with the board in backups.',
   hpPal: '“Extract palette” in an image\'s adjustments drops a swatch card of its colors (tap a color to copy its code). From the library, the chain icon drops a link card to another board — double-tap to open it.',
   hpPres: 'Presentation mode (<kbd>P</kbd>) hides the whole interface, navigation only. “Export as PNG” flattens the board into an image.',
   hpBackup: 'Export/Import in the ··· menu: the board becomes a file on your device; importing creates a new board.',
-  hpKeys: '<kbd>B</kbd> boards · <kbd>D</kbd> pencil · <kbd>T</kbd> text · <kbd>L</kbd> checklist · <kbd>C</kbd> calendar · <kbd>P</kbd> presentation · <kbd>R</kbd> rotate · <kbd>M</kbd> mirror · <kbd>F</kbd> fit all · <kbd>Del</kbd> delete · <kbd>Esc</kbd> close',
+  hpKeys: '<kbd>B</kbd> boards · <kbd>D</kbd> pencil · <kbd>T</kbd> text · <kbd>L</kbd> checklist · <kbd>C</kbd> calendar · <kbd>P</kbd> presentation · <kbd>R</kbd> rotate · <kbd>M</kbd> mirror · <kbd>F</kbd> fit all · <kbd>G</kbd> tidy · <kbd>Cmd/Ctrl D</kbd> duplicate · <kbd>Del</kbd> delete · <kbd>Esc</kbd> close',
 };
 const tr = k => (lang === 'fr' ? I18N_FR : I18N_EN)[k];
 function applyI18n() {
@@ -726,11 +731,18 @@ function buildAdjust() {
       row.append(lab, r);
       box.appendChild(row);
     }
+    const actions = document.createElement('div');
+    actions.className = 'atoggles';
+    const cropBtn = document.createElement('button');
+    cropBtn.className = 'tgl';
+    cropBtn.textContent = tr('cropLabel');
+    cropBtn.addEventListener('click', () => openCrop(it));
     const pal = document.createElement('button');
     pal.className = 'tgl';
     pal.textContent = tr('extractLabel');
     pal.addEventListener('click', () => { closePopovers(); extractPalette(it); });
-    box.appendChild(pal);
+    actions.append(cropBtn, pal);
+    box.appendChild(actions);
     const reset = document.createElement('button');
     reset.className = 'areset';
     reset.textContent = tr('resetLabel');
@@ -773,6 +785,172 @@ function buildAdjust() {
     }
     box.appendChild(fam);
   }
+}
+
+/* ============================== dupliquer / ranger ============================== */
+function duplicateItem(src, noOffset) {
+  if (!src) return null;
+  const off = noOffset ? 0 : 24 / view.s;
+  const base = { id: uid(), type: src.type, x: src.x + off, y: src.y + off, w: src.w, rot: src.rot };
+  let it = null;
+  if (src.type === 'img') {
+    it = { ...base, ar: src.ar, flip: src.flip, filters: { ...src.filters }, blob: src.blob, url: URL.createObjectURL(src.blob) };
+    dbPutImage(it.id, src.blob).catch(() => {});
+  } else if (src.type === 'stroke') {
+    it = { ...base, ar: src.ar, natW: src.natW, natH: src.natH, color: src.color, size: src.size, hit: src.hit, pts: src.pts.map(p => [p[0], p[1]]) };
+  } else if (src.type === 'text') {
+    it = { ...base, text: src.text, color: src.color, size: src.size, serif: src.serif };
+  } else if (src.type === 'todo') {
+    it = { ...base, size: src.size, entries: src.entries.map(e => ({ t: e.t, done: e.done })) };
+  } else if (src.type === 'palette') {
+    it = { ...base, colors: [...src.colors] };
+  } else if (src.type === 'link') {
+    it = { ...base, target: src.target, name: src.name };
+  }
+  if (!it) return null;
+  addItem(it);
+  select(it);
+  scheduleSave();
+  return it;
+}
+
+function arrangeBoard() {
+  if (items.length < 2) return;
+  commitTextEdit();
+  commitTodoEdit();
+  const boxes = items.map(it => {
+    const h = itemH(it);
+    const cos = Math.abs(Math.cos(it.rot)), sin = Math.abs(Math.sin(it.rot));
+    return { it, bw: it.w * cos + h * sin, bh: it.w * sin + h * cos };
+  });
+  const gap = 0.06 * boxes.reduce((s, b) => s + b.bw, 0) / boxes.length;
+  const area = boxes.reduce((s, b) => s + (b.bw + gap) * (b.bh + gap), 0);
+  const targetW = Math.max(Math.sqrt(area * 1.4), ...boxes.map(b => b.bw));
+  const sorted = [...boxes].sort((a, b) => b.bh - a.bh);
+  let x = 0, y = 0, rowH = 0;
+  for (const b of sorted) {
+    if (x > 0 && x + b.bw > targetW) { x = 0; y += rowH + gap; rowH = 0; }
+    b.nx = x + b.bw / 2;
+    b.ny = y + b.bh / 2;
+    x += b.bw + gap;
+    rowH = Math.max(rowH, b.bh);
+  }
+  for (const b of sorted) {
+    const c = itemCenter(b.it);
+    b.it.x += b.nx - c.x;
+    b.it.y += b.ny - c.y;
+    b.it.el.classList.add('arranging');
+    renderItem(b.it);
+  }
+  setTimeout(() => { for (const b of sorted) b.it.el.classList.remove('arranging'); }, 600);
+  scheduleSave();
+  requestAnimationFrame(fitView);
+  toast(tr('arranged'));
+}
+
+/* ============================== recadrage ============================== */
+const cropState = { it: null, rect: null, g: null };
+function openCrop(it) {
+  if (!it || it.type !== 'img') return;
+  closePopovers();
+  cropState.it = it;
+  const img = $('crop-img');
+  const ready = () => {
+    cropState.rect = { x: 0, y: 0, w: img.clientWidth, h: img.clientHeight };
+    renderCropRect();
+  };
+  img.onload = ready;
+  $('crop').classList.remove('hidden'); // visible d'abord, pour que clientWidth soit mesurable
+  img.src = it.url;
+  if (img.complete && img.clientWidth) ready();
+}
+function renderCropRect() {
+  const r = $('crop-rect'), c = cropState.rect;
+  r.style.left = c.x + 'px';
+  r.style.top = c.y + 'px';
+  r.style.width = c.w + 'px';
+  r.style.height = c.h + 'px';
+}
+function closeCrop() {
+  $('crop').classList.add('hidden');
+  $('crop-img').removeAttribute('src');
+  cropState.it = null;
+  cropState.g = null;
+}
+{
+  const crop = $('crop'), img = $('crop-img');
+  const MINC = 28;
+  crop.addEventListener('pointerdown', e => {
+    if (e.target.closest('#crop-actions')) return;
+    e.preventDefault();
+    const handle = e.target.closest('.cch');
+    const onRect = e.target.closest('#crop-rect');
+    if (!handle && !onRect) return;
+    try { crop.setPointerCapture(e.pointerId); } catch (_) {}
+    const c = cropState.rect;
+    cropState.g = {
+      pid: e.pointerId, px: e.clientX, py: e.clientY,
+      start: { ...c },
+      corner: handle ? handle.className.match(/c-(\w+)/)[1] : null,
+    };
+  });
+  crop.addEventListener('pointermove', e => {
+    const g = cropState.g;
+    if (!g || e.pointerId !== g.pid) return;
+    const W = img.clientWidth, H = img.clientHeight;
+    const dx = e.clientX - g.px, dy = e.clientY - g.py;
+    const s = g.start, c = cropState.rect;
+    if (!g.corner) {
+      c.x = clamp(s.x + dx, 0, W - s.w);
+      c.y = clamp(s.y + dy, 0, H - s.h);
+    } else {
+      let x1 = s.x, y1 = s.y, x2 = s.x + s.w, y2 = s.y + s.h;
+      if (g.corner.includes('w')) x1 = clamp(s.x + dx, 0, x2 - MINC);
+      if (g.corner.includes('e')) x2 = clamp(s.x + s.w + dx, x1 + MINC, W);
+      if (g.corner.includes('n')) y1 = clamp(s.y + dy, 0, y2 - MINC);
+      if (g.corner.includes('s')) y2 = clamp(s.y + s.h + dy, y1 + MINC, H);
+      c.x = x1; c.y = y1; c.w = x2 - x1; c.h = y2 - y1;
+    }
+    renderCropRect();
+  });
+  const end = e => { if (cropState.g && e.pointerId === cropState.g.pid) cropState.g = null; };
+  crop.addEventListener('pointerup', end);
+  crop.addEventListener('pointercancel', end);
+  $('crop-cancel').addEventListener('click', closeCrop);
+  $('crop-ok').addEventListener('click', async () => {
+    const it = cropState.it, c = cropState.rect;
+    if (!it || !c) { closeCrop(); return; }
+    try {
+      const info = await loadBlobAsImage(it.blob);
+      const fx = c.x / img.clientWidth, fy = c.y / img.clientHeight;
+      const fw = c.w / img.clientWidth, fh = c.h / img.clientHeight;
+      const sx = Math.round(fx * info.w), sy = Math.round(fy * info.h);
+      const sw = Math.max(2, Math.round(fw * info.w)), sh = Math.max(2, Math.round(fh * info.h));
+      const canvas = document.createElement('canvas');
+      canvas.width = sw; canvas.height = sh;
+      canvas.getContext('2d').drawImage(info.img, sx, sy, sw, sh, 0, 0, sw, sh);
+      URL.revokeObjectURL(info.url);
+      const type = it.blob.type === 'image/png' ? 'image/png' : 'image/jpeg';
+      const blob = await new Promise(r => canvas.toBlob(r, type, 0.92));
+      if (!blob) throw new Error('toBlob');
+      const old = it.url;
+      it.blob = blob;
+      it.url = URL.createObjectURL(blob);
+      it.ar = sw / sh;
+      it.w = it.w * fw;                       // la zone gardée conserve sa taille à l'écran
+      if (it._edgeUrl) { URL.revokeObjectURL(it._edgeUrl); it._edgeUrl = null; }
+      it._edgePromise = null;
+      it.el.firstChild.src = it.url;
+      URL.revokeObjectURL(old);
+      renderItem(it);
+      dbPutImage(it.id, blob).catch(() => toast(tr('imgFull')));
+      scheduleSave();
+      closeCrop();
+    } catch (e) {
+      closeCrop();
+      toast(tr('cropFail'));
+    }
+  });
 }
 
 /* ============================== palette de couleurs ============================== */
@@ -1280,6 +1458,9 @@ vp.addEventListener('pointerdown', e => {
       it._lastTap = now;
       select(it);
       bringToFront(it);
+      // Alt+glisser : on déplace une copie
+      let target = it;
+      if (e.altKey) { const copy = duplicateItem(it, true); if (copy) target = copy; }
       // actions au relâchement (tap sans déplacement) : cocher, ajouter une ligne, copier une couleur
       let tap = null;
       if (it.type === 'todo') {
@@ -1298,7 +1479,7 @@ vp.addEventListener('pointerdown', e => {
           };
         }
       }
-      gesture = { type: 'move', it, pid: e.pointerId, moved: false, tap, start: { px: e.clientX, py: e.clientY, x: it.x, y: it.y } };
+      gesture = { type: 'move', it: target, pid: e.pointerId, moved: false, tap, start: { px: e.clientX, py: e.clientY, x: target.x, y: target.y } };
     } else {
       select(null);
       gesture = { type: 'pan', pid: e.pointerId, start: { px: e.clientX, py: e.clientY, x: view.x, y: view.y } };
@@ -1544,6 +1725,7 @@ $('more').addEventListener('click', e => {
   else if (act === 'export') exportBoard();
   else if (act === 'import') $('file-board').click();
   else if (act === 'png') exportPng();
+  else if (act === 'arrange') arrangeBoard();
   else if (act === 'present') setPresenting(true);
   else if (act === 'todo') {
     setTool(null);
@@ -1755,9 +1937,10 @@ async function renderNotes() {
 }
 async function jumpToNote(boardId, itemId) {
   closeLibrary();
+  closeCalendar();
   if (boardId !== library.current) await switchBoard(boardId);
   const it = items.find(i => i.id === itemId);
-  if (!it) return;
+  if (!it) { toast(tr('pinnedGone')); return; }
   select(it);
   const c = itemCenter(it), h = itemH(it);
   const s = clamp(0.55 * Math.min(innerWidth, innerHeight) / Math.max(it.w, h), MIN_S, 2.5);
@@ -2012,6 +2195,14 @@ function renderCalendar() {
       chip.textContent = b ? b.name : '?';
       row.append(chip);
     }
+    if (ev.itemId) {
+      const pin = document.createElement('button');
+      pin.className = 'evpin';
+      pin.title = tr('pinTitle');
+      pin.innerHTML = '<svg class="ic" viewBox="0 0 24 24" style="width:14px;height:14px"><path d="M12 21s-6-5.1-6-10a6 6 0 0 1 12 0c0 4.9-6 10-6 10z"/><circle cx="12" cy="11" r="2.2"/></svg>';
+      pin.addEventListener('click', () => { closeCalendar(); jumpToNote(ev.boardId, ev.itemId); });
+      row.append(pin);
+    }
     row.append(del);
     evBox.appendChild(row);
   }
@@ -2023,7 +2214,10 @@ $('cal-form').addEventListener('submit', e => {
   e.preventDefault();
   const title = $('cal-text').value.trim();
   if (!title) return;
-  calendar.events.push({ id: uid(), boardId: library.current, date: calSel, time: $('cal-time').value || '', title });
+  calendar.events.push({
+    id: uid(), boardId: library.current, date: calSel, time: $('cal-time').value || '', title,
+    itemId: selected ? selected.id : '',      // épinglé à l'élément sélectionné au moment de l'ajout
+  });
   $('cal-text').value = '';
   $('cal-time').value = '';
   saveCalendar();
@@ -2196,6 +2390,7 @@ $('file-doc').addEventListener('change', e => { importFiles(e.target.files); e.t
 $('file-board').addEventListener('change', e => { if (e.target.files[0]) importBoard(e.target.files[0]); e.target.value = ''; });
 $('btn-fit').addEventListener('click', fitView);
 $('btn-del').addEventListener('click', () => { if (selected) removeItem(selected); });
+$('btn-dup').addEventListener('click', () => duplicateItem(selected));
 $('btn-rot').addEventListener('click', () => rotateSelected(HALF_PI));
 $('btn-flip').addEventListener('click', flipSelected);
 $('help').addEventListener('click', e => { if (e.target === $('help')) $('help').classList.add('hidden'); });
@@ -2248,6 +2443,7 @@ document.addEventListener('keydown', e => {
   }
   if ((e.key === 'Delete' || e.key === 'Backspace') && selected) { e.preventDefault(); removeItem(selected); }
   else if ((e.metaKey || e.ctrlKey) && e.key === 'z' && tool === 'draw') { e.preventDefault(); $('pen-undo').click(); }
+  else if ((e.metaKey || e.ctrlKey) && e.key === 'd' && selected) { e.preventDefault(); duplicateItem(selected); }
   else if (e.metaKey || e.ctrlKey) { /* laisse les raccourcis navigateur */ }
   else if (e.key === 'f' || e.key === 'F') fitView();
   else if (e.key === 'r') rotateSelected(HALF_PI);
@@ -2258,6 +2454,7 @@ document.addEventListener('keydown', e => {
   else if (e.key === 'b' || e.key === 'B') { if (document.body.classList.contains('lib-open')) closeLibrary(); else openLibrary(); }
   else if (e.key === 'c' || e.key === 'C') { if (document.body.classList.contains('cal-open')) closeCalendar(); else openCalendar(); }
   else if (e.key === 'p' || e.key === 'P') setPresenting(true);
+  else if (e.key === 'g' || e.key === 'G') arrangeBoard();
   else if (e.key === 'l' || e.key === 'L') document.querySelector('#more button[data-act="todo"]').click();
   else if (e.key === 'Escape') {
     if (tool === 'draw') setTool(null);

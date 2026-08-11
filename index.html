@@ -46,6 +46,9 @@
       <button id="btn-flip" title="Miroir horizontal" data-i18n-title="tbFlip">
         <svg class="ic" viewBox="0 0 24 24"><path d="M12 3v18" stroke-dasharray="1.5 3.2"/><path d="M8 8l-4 4 4 4"/><path d="M16 8l4 4-4 4"/></svg>
       </button>
+      <button id="btn-dup" title="Dupliquer" data-i18n-title="tbDup">
+        <svg class="ic" viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 4.5H6.5a2 2 0 0 0-2 2V16"/></svg>
+      </button>
       <button id="btn-adj" title="Réglages" data-i18n-title="tbAdj">
         <svg class="ic" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/><circle cx="9" cy="7" r="2.2" fill="var(--paper)"/><circle cx="15" cy="12" r="2.2" fill="var(--paper)"/><circle cx="8" cy="17" r="2.2" fill="var(--paper)"/></svg>
       </button>
@@ -69,6 +72,7 @@
     <button data-act="todo"><svg class="ic" viewBox="0 0 24 24"><rect x="4" y="5" width="5" height="5" rx="1.2"/><path d="M5.2 7.5l1.2 1.2 2-2.4" stroke-width="1.4"/><path d="M12.5 7.5H20M12.5 16.5H20"/><rect x="4" y="14" width="5" height="5" rx="1.2"/></svg><span data-i18n="mTodo">Checklist</span></button>
     <button data-act="cal"><svg class="ic" viewBox="0 0 24 24"><rect x="4" y="6" width="16" height="14" rx="2"/><path d="M4 10h16M8 4v4M16 4v4"/></svg><span data-i18n="mCal">Calendrier</span></button>
     <button data-act="bg"><svg class="ic" viewBox="0 0 24 24"><path d="M12 3.2s6 6.6 6 10.8a6 6 0 0 1-12 0c0-4.2 6-10.8 6-10.8z"/></svg><span data-i18n="mBg">Fond du board</span></button>
+    <button data-act="arrange"><svg class="ic" viewBox="0 0 24 24"><rect x="4" y="4" width="7" height="7" rx="1.5"/><rect x="13" y="4" width="7" height="7" rx="1.5"/><rect x="4" y="13" width="7" height="7" rx="1.5"/><rect x="13" y="13" width="7" height="7" rx="1.5"/></svg><span data-i18n="mArrange">Ranger le board</span></button>
     <button data-act="present"><svg class="ic" viewBox="0 0 24 24"><path d="M2.5 12s3.5-6.5 9.5-6.5S21.5 12 21.5 12s-3.5 6.5-9.5 6.5S2.5 12 2.5 12z"/><circle cx="12" cy="12" r="2.8"/></svg><span data-i18n="mPres">Présentation</span></button>
     <button data-act="doc"><svg class="ic" viewBox="0 0 24 24"><path d="M7 3h7l4 4v14H7z"/><path d="M14 3v4h4"/></svg><span data-i18n="mDoc">Importer un document</span></button>
     <button data-act="png"><svg class="ic" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"/><circle cx="9.2" cy="9.2" r="1.6"/><path d="M4 17l4.5-4.5 3.5 3.5 4-5L20 15"/></svg><span data-i18n="mPng">Exporter en PNG</span></button>
@@ -156,13 +160,13 @@
       <h3 data-i18n="htPen">Crayon &amp; texte</h3>
       <p data-i18n-html="hpPen">Le crayon dessine à main levée (couleur, épaisseur, annuler dans la palette) ; deux doigts naviguent pendant le dessin. Le T pose une zone de texte : double-tape dessus pour l'éditer, poignées pour la taille.</p>
       <h3 data-i18n="htManip">Manipuler</h3>
-      <p data-i18n-html="hpManip">Un doigt : déplacer. Deux doigts sur un élément : taille + rotation (aimantée sur 0/90/180/270°). Poignées d'angle : taille. Poignée du haut : rotation.</p>
+      <p data-i18n-html="hpManip">Un doigt : déplacer. Deux doigts sur un élément : taille + rotation (aimantée sur 0/90/180/270°). Poignées d'angle : taille. Poignée du haut : rotation. Dupliquer : bouton copie, <kbd>Cmd/Ctrl D</kbd> ou Alt+glisser. « Ranger le board » (<kbd>G</kbd>) aligne tout en grille.</p>
       <h3 data-i18n="htTrace">Décalquer</h3>
-      <p data-i18n-html="hpTrace">Les réglages d'une image (icône curseurs) offrent noir &amp; blanc, contraste, opacité et <b>extraction de contours</b>. Le cadenas fige tout l'écran et empêche la mise en veille — <b>maintiens-le une seconde</b> pour déverrouiller.</p>
+      <p data-i18n-html="hpTrace">Les réglages d'une image (icône curseurs) offrent noir &amp; blanc, contraste, opacité, <b>extraction de contours</b> et <b>recadrage</b>. Le cadenas fige tout l'écran et empêche la mise en veille — <b>maintiens-le une seconde</b> pour déverrouiller.</p>
       <h3 data-i18n="htTodo">Checklists &amp; notes</h3>
       <p data-i18n-html="hpTodo">Checklist dans le menu ··· (<kbd>L</kbd>) : coche d'un tap, double-tape une ligne pour l'éditer, Entrée ajoute la suivante. L'onglet <b>Notes</b> de la librairie rassemble textes et checklists de tous les boards — tape pour y sauter.</p>
       <h3 data-i18n="htCal">Calendrier</h3>
-      <p data-i18n-html="hpCal">Menu ··· ou <kbd>C</kbd> : un agenda local, sans synchronisation. Chaque événement appartient au board courant ; la vue <b>Tous</b> montre l'agenda de tous les boards. Les événements partent avec le board dans les backups.</p>
+      <p data-i18n-html="hpCal">Menu ··· ou <kbd>C</kbd> : un agenda local, sans synchronisation. Chaque événement appartient au board courant ; la vue <b>Tous</b> montre l'agenda de tous les boards. Un élément sélectionné au moment de l'ajout est <b>épinglé</b> à l'événement — l'épingle y ramène d'un tap. Les événements partent avec le board dans les backups.</p>
       <h3 data-i18n="htPal">Palette &amp; liens</h3>
       <p data-i18n-html="hpPal">« Extraire la palette » dans les réglages d'une image pose un nuancier de ses couleurs (tape une couleur pour copier son code). Depuis la librairie, l'icône chaîne pose une carte-lien vers un autre board — double-tape pour l'ouvrir.</p>
       <h3 data-i18n="htPres">Présentation &amp; export</h3>
@@ -170,8 +174,21 @@
       <h3 data-i18n="htBackup">Backup</h3>
       <p data-i18n-html="hpBackup">Exporter/Importer dans le menu ··· : le board devient un fichier sur l'appareil ; l'import crée un nouveau board.</p>
       <h3 data-i18n="htKeys">Clavier</h3>
-      <p data-i18n-html="hpKeys"><kbd>B</kbd> boards · <kbd>D</kbd> crayon · <kbd>T</kbd> texte · <kbd>L</kbd> checklist · <kbd>C</kbd> calendrier · <kbd>P</kbd> présentation · <kbd>R</kbd> pivoter · <kbd>M</kbd> miroir · <kbd>F</kbd> tout afficher · <kbd>Suppr</kbd> supprimer · <kbd>Échap</kbd> fermer</p>
+      <p data-i18n-html="hpKeys"><kbd>B</kbd> boards · <kbd>D</kbd> crayon · <kbd>T</kbd> texte · <kbd>L</kbd> checklist · <kbd>C</kbd> calendrier · <kbd>P</kbd> présentation · <kbd>R</kbd> pivoter · <kbd>M</kbd> miroir · <kbd>F</kbd> tout afficher · <kbd>G</kbd> ranger · <kbd>Cmd/Ctrl D</kbd> dupliquer · <kbd>Suppr</kbd> supprimer · <kbd>Échap</kbd> fermer</p>
       <button class="danger" id="btn-clear" data-i18n="clearBtn">Vider ce board</button>
+    </div>
+  </div>
+
+  <div id="crop" class="hidden">
+    <div id="crop-box">
+      <img id="crop-img" alt="">
+      <div id="crop-rect">
+        <div class="cch c-nw"></div><div class="cch c-ne"></div><div class="cch c-sw"></div><div class="cch c-se"></div>
+      </div>
+    </div>
+    <div id="crop-actions">
+      <button id="crop-cancel" data-i18n="cropCancel">Annuler</button>
+      <button id="crop-ok" data-i18n="cropOk">Recadrer</button>
     </div>
   </div>
 

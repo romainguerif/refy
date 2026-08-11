@@ -1,5 +1,6 @@
-const CACHE = 'refy-v2';
-const ASSETS = ['./', './index.html', './manifest.json', './icon-180.png', './icon-512.png'];
+const CACHE = 'refy-v3';
+const ASSETS = ['./', './index.html', './app.css', './app.js', './manifest.json', './icon-180.png', './icon-512.png'];
+const PDFJS = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/';
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS)).then(() => self.skipWaiting()));
@@ -13,9 +14,26 @@ self.addEventListener('activate', e => {
   );
 });
 
-// Réseau d'abord (pour récupérer les mises à jour), cache en secours (hors-ligne).
 self.addEventListener('fetch', e => {
-  if (e.request.method !== 'GET' || !e.request.url.startsWith(self.location.origin)) return;
+  if (e.request.method !== 'GET') return;
+
+  // pdf.js (CDN) : cache d'abord — immuable et nécessaire hors-ligne après le premier usage
+  if (e.request.url.startsWith(PDFJS)) {
+    e.respondWith(
+      caches.match(e.request).then(hit => hit || fetch(e.request).then(r => {
+        if (r.ok) {
+          const copy = r.clone();
+          caches.open(CACHE).then(c => c.put(e.request, copy)).catch(() => {});
+        }
+        return r;
+      }))
+    );
+    return;
+  }
+
+  if (!e.request.url.startsWith(self.location.origin)) return;
+
+  // Réseau d'abord (pour récupérer les mises à jour), cache en secours (hors-ligne).
   e.respondWith(
     fetch(e.request)
       .then(r => {

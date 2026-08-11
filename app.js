@@ -108,7 +108,7 @@ const I18N_EN = {
   tbBoards: 'My boards', tbAdd: 'Add images', tbDraw: 'Pencil', tbText: 'Text', tbRot: 'Rotate 90°',
   tbFlip: 'Mirror horizontally', tbAdj: 'Adjustments', tbDel: 'Delete', tbFit: 'Fit everything',
   tbLock: 'Lock for tracing', tbMore: 'More', tbUndo: 'Undo last stroke', tbUnlock: 'Hold to unlock',
-  tbPresQuit: 'Exit presentation', tbBg: 'Background color',
+  tbPresQuit: 'Exit presentation', tbBg: 'Background color', tbClose: 'Close',
   mTodo: 'Checklist', mCal: 'Calendar', mBg: 'Board background', mPres: 'Presentation',
   mDoc: 'Import a document', mPng: 'Export as PNG', mExport: 'Export board', mImport: 'Import a backup', mHelp: 'Help',
   segNotes: 'Notes', segBoard: 'This board', segAll: 'All', calTitle: 'Calendar', libNew: 'New board',
@@ -505,7 +505,8 @@ async function normalizeImage(blob) {
     canvas.width = Math.round(info.w * f);
     canvas.height = Math.round(info.h * f);
     canvas.getContext('2d').drawImage(info.img, 0, 0, canvas.width, canvas.height);
-    const type = blob.type === 'image/png' ? 'image/png' : 'image/jpeg';
+    const type = blob.type === 'image/jpeg' || blob.type === 'image/heic' || blob.type === 'image/heif'
+      ? 'image/jpeg' : 'image/png';         // PNG par défaut : préserve la transparence (webp, etc.)
     const out = await new Promise(r => canvas.toBlob(r, type, 0.88));
     return out || blob;
   } finally {
@@ -982,6 +983,13 @@ function closeCrop() {
   const end = e => { if (cropState.g && e.pointerId === cropState.g.pid) cropState.g = null; };
   crop.addEventListener('pointerup', end);
   crop.addEventListener('pointercancel', end);
+  // rotation de l'écran / redimensionnement : l'image affichée change d'échelle, on repart plein cadre
+  addEventListener('resize', () => {
+    if ($('crop').classList.contains('hidden') || !cropState.it) return;
+    cropState.g = null;
+    cropState.rect = { x: 0, y: 0, w: img.clientWidth, h: img.clientHeight };
+    renderCropRect();
+  });
   $('crop-cancel').addEventListener('click', closeCrop);
   $('crop-ok').addEventListener('click', async () => {
     const it = cropState.it, c = cropState.rect;
@@ -990,20 +998,33 @@ function closeCrop() {
       const info = await loadBlobAsImage(it.blob);
       const fx = c.x / img.clientWidth, fy = c.y / img.clientHeight;
       const fw = c.w / img.clientWidth, fh = c.h / img.clientHeight;
-      const sx = Math.round(fx * info.w), sy = Math.round(fy * info.h);
-      const sw = Math.max(2, Math.round(fw * info.w)), sh = Math.max(2, Math.round(fh * info.h));
+      let sx = Math.round(fx * info.w), sy = Math.round(fy * info.h);
+      let sw = Math.max(2, Math.round(fw * info.w)), sh = Math.max(2, Math.round(fh * info.h));
+      sx = clamp(sx, 0, info.w - 2); sy = clamp(sy, 0, info.h - 2);
+      sw = clamp(sw, 2, info.w - sx); sh = clamp(sh, 2, info.h - sy);
       const canvas = document.createElement('canvas');
       canvas.width = sw; canvas.height = sh;
       canvas.getContext('2d').drawImage(info.img, sx, sy, sw, sh, 0, 0, sw, sh);
       URL.revokeObjectURL(info.url);
-      const type = it.blob.type === 'image/png' ? 'image/png' : 'image/jpeg';
+      // JPEG seulement si la source l'était déjà : le PNG préserve la transparence
+      const type = it.blob.type === 'image/jpeg' ? 'image/jpeg' : 'image/png';
       const blob = await new Promise(r => canvas.toBlob(r, type, 0.92));
       if (!blob) throw new Error('toBlob');
       const old = it.url;
       it.blob = blob;
       it.url = URL.createObjectURL(blob);
+      // la zone gardée reste exactement là où elle était sur le board (rotation et miroir compris)
+      const oldW = it.w, oldH = it.w / it.ar;
+      const ocx = it.x + oldW / 2, ocy = it.y + oldH / 2;
+      let dx = (fx + fw / 2 - 0.5) * oldW;
+      const dy = (fy + fh / 2 - 0.5) * oldH;
+      if (it.flip) dx = -dx;
+      const cos = Math.cos(it.rot), sin = Math.sin(it.rot);
+      const ncx = ocx + dx * cos - dy * sin, ncy = ocy + dx * sin + dy * cos;
       it.ar = sw / sh;
-      it.w = it.w * fw;                       // la zone gardée conserve sa taille à l'écran
+      it.w = oldW * fw;
+      it.x = ncx - it.w / 2;
+      it.y = ncy - it.w / it.ar / 2;
       if (it._edgeUrl) { URL.revokeObjectURL(it._edgeUrl); it._edgeUrl = null; }
       it._edgePromise = null;
       it.el.firstChild.src = it.url;
@@ -1520,7 +1541,7 @@ vp.addEventListener('pointerdown', e => {
       if (e.shiftKey) { toggleSelect(it); return; }
       // double-tap : édition texte / ligne de checklist / ouverture de lien
       const now = performance.now();
-      if (it._lastTap && now - it._lastTap < 350) {
+      if (!e.altKey && it._lastTap && now - it._lastTap < 350) {
         it._lastTap = 0;
         if (it.type === 'text') { select(it); editText(it); return; }
         if (it.type === 'link') { openLinkTarget(it); return; }
@@ -1529,7 +1550,7 @@ vp.addEventListener('pointerdown', e => {
           if (row) { select(it); editTodoRow(it, +row.dataset.i); return; }
         }
       }
-      it._lastTap = now;
+      if (!e.altKey) it._lastTap = now;
       // membre d'une sélection multiple : on déplace tout le groupe
       if (multi.size > 1 && multi.has(it)) {
         gesture = {
@@ -1550,9 +1571,8 @@ vp.addEventListener('pointerdown', e => {
       // (remplace), un glisser (remplace) ou un appui long (ajoute au groupe)
       const deferSelect = multi.size >= 1 && !multi.has(it) ? it : null;
       if (!deferSelect) { select(it); bringToFront(it); }
-      // Alt+glisser : on déplace une copie
-      let target = it;
-      if (e.altKey && !deferSelect) { const copy = duplicateItem(it, true); if (copy) target = copy; }
+      // Alt+glisser : la copie n'est créée qu'au début du vrai glisser (pas au simple clic)
+      const target = it;
       // actions au relâchement (tap sans déplacement) : cocher, ajouter une ligne, copier une couleur
       let tap = null;
       if (it.type === 'todo') {
@@ -1571,7 +1591,7 @@ vp.addEventListener('pointerdown', e => {
           };
         }
       }
-      gesture = { type: 'move', it: target, pid: e.pointerId, moved: false, tap, deferSelect, start: { px: e.clientX, py: e.clientY, x: target.x, y: target.y } };
+      gesture = { type: 'move', it: target, pid: e.pointerId, moved: false, tap, deferSelect, alt: e.altKey && !deferSelect, start: { px: e.clientX, py: e.clientY, x: target.x, y: target.y } };
       const g = gesture;
       g.lp = setTimeout(() => { // appui long : ajoute à la sélection existante
         if (gesture === g && !g.moved && g.deferSelect) {
@@ -1638,6 +1658,7 @@ vp.addEventListener('pointermove', e => {
       g.moved = true;
       if (g.lp) { clearTimeout(g.lp); g.lp = null; }
       if (g.deferSelect) { select(g.deferSelect); bringToFront(g.deferSelect); g.deferSelect = null; }
+      if (g.alt) { g.alt = false; const copy = duplicateItem(g.it, true); if (copy) g.it = copy; }
     }
     if (!g.moved) return;
     g.it.x = g.start.x + (e.clientX - g.start.px) / view.s;
@@ -2603,6 +2624,12 @@ document.addEventListener('keydown', e => {
     if (e.key === 'Escape' && (editingText || editingTodo)) e.target.blur();
     return;
   }
+  // modale de recadrage : Échap annule, Entrée valide, tout le reste est neutralisé
+  if (!$('crop').classList.contains('hidden')) {
+    if (e.key === 'Escape') closeCrop();
+    else if (e.key === 'Enter') $('crop-ok').click();
+    return;
+  }
   if (locked) return;
   if (presenting) { if (e.key === 'Escape' || e.key === 'p' || e.key === 'P') setPresenting(false); return; }
   // panneau ouvert : seules les touches de navigation des panneaux restent actives
@@ -2641,7 +2668,7 @@ document.addEventListener('keydown', e => {
 });
 
 document.addEventListener('paste', e => {
-  if (locked || isTyping(e)) return;
+  if (locked || isTyping(e) || !$('crop').classList.contains('hidden')) return;
   const files = [...(e.clipboardData?.items || [])]
     .filter(i => i.kind === 'file')
     .map(i => i.getAsFile())

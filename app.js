@@ -68,6 +68,7 @@ const I18N_FR = {
   week: ['L', 'M', 'M', 'J', 'V', 'S', 'D'],
   arranged: 'Board rangé', cropLabel: 'Recadrer', cropFail: 'Recadrage impossible sur cette image',
   pinTitle: 'Aller à l\'élément épinglé', pinnedGone: 'Élément introuvable',
+  selCount: n => `${n} sélectionné${n > 1 ? 's' : ''}`,
 };
 const I18N_EN = {
   saveFull: 'Could not save (storage full?)', imgFull: 'Image not saved (storage full?)',
@@ -102,6 +103,7 @@ const I18N_EN = {
   arranged: 'Board tidied', cropLabel: 'Crop', cropFail: 'Could not crop this image',
   pinTitle: 'Go to pinned element', pinnedGone: 'Element not found',
   mArrange: 'Tidy the board', tbDup: 'Duplicate', cropCancel: 'Cancel', cropOk: 'Crop',
+  selCount: n => `${n} selected`,
   /* — textes statiques du DOM — */
   tbBoards: 'My boards', tbAdd: 'Add images', tbDraw: 'Pencil', tbText: 'Text', tbRot: 'Rotate 90°',
   tbFlip: 'Mirror horizontally', tbAdj: 'Adjustments', tbDel: 'Delete', tbFit: 'Fit everything',
@@ -118,7 +120,7 @@ const I18N_EN = {
   hpBoards: 'The icon at the left of the bar opens your library: create, rename, delete and switch boards. Everything is saved automatically in the browser.',
   hpAdd: '+ button (photos), drag & drop, paste (<kbd>Ctrl/Cmd V</kbd> — images or text), and “Import a document” in the ··· menu for PDFs and text notes.',
   hpPen: 'The pencil draws freehand (color, weight, undo in the palette); two fingers navigate while drawing. T drops a text block: double-tap to edit it, handles to resize.',
-  hpManip: 'One finger: move. Two fingers on an element: size + rotation (snaps to 0/90/180/270°). Corner handles: size. Top handle: rotation. Duplicate: copy button, <kbd>Cmd/Ctrl D</kbd> or Alt+drag. “Tidy the board” (<kbd>G</kbd>) packs everything into a grid.',
+  hpManip: 'One finger: move. Two fingers on an element: size + rotation (snaps to 0/90/180/270°). Corner handles: size. Top handle: rotation. Duplicate: copy button, <kbd>Cmd/Ctrl D</kbd> or Alt+drag. “Tidy the board” (<kbd>G</kbd>) packs everything into a grid — annotations resting on an element follow it. Multi-select: <kbd>Shift</kbd>+click or <b>long-press</b>, <kbd>Shift</kbd>+drag the background for a rectangle, <kbd>Cmd/Ctrl A</kbd> for everything.',
   hpTrace: 'An image\'s adjustments (sliders icon) offer black & white, contrast, opacity, <b>edge extraction</b> and <b>cropping</b>. The padlock freezes the whole screen and keeps it awake — <b>hold it one second</b> to unlock.',
   hpTodo: 'Checklist in the ··· menu (<kbd>L</kbd>): tap to check, double-tap a line to edit it, Enter adds the next one. The <b>Notes</b> tab of the library gathers text and checklists from every board — tap to jump there.',
   hpCal: '··· menu or <kbd>C</kbd>: a local agenda, no sync. Each event belongs to the current board; the <b>All</b> view shows every board\'s agenda. An element selected when adding is <b>pinned</b> to the event — the pin jumps back to it. Events travel with the board in backups.',
@@ -422,20 +424,50 @@ function bringToFront(it) {
     stage.appendChild(it.el);
   }
 }
+const multi = new Set(); // sélection multiple ; `selected` reste l'élément principal (poignées)
+function refreshSelClasses() {
+  document.body.classList.toggle('has-selection', multi.size > 0);
+  const single = multi.size === 1 ? selected : null;
+  document.body.classList.toggle('sel-img', !!single && single.type === 'img');
+  document.body.classList.toggle('sel-text', !!single && single.type === 'text');
+  document.body.classList.toggle('multi-sel', multi.size > 1);
+}
 function select(it) {
-  if (selected === it) return;
-  if (selected) selected.el.classList.remove('selected');
-  selected = it;
-  if (it) it.el.classList.add('selected');
-  document.body.classList.toggle('has-selection', !!it);
-  document.body.classList.toggle('sel-img', !!it && it.type === 'img');
-  document.body.classList.toggle('sel-text', !!it && it.type === 'text');
+  for (const m of multi) m.el.classList.remove('selected');
+  multi.clear();
+  selected = it || null;
+  if (it) { multi.add(it); it.el.classList.add('selected'); }
+  refreshSelClasses();
   $('adjust').classList.remove('open');
+}
+function toggleSelect(it) {
+  if (multi.has(it)) {
+    multi.delete(it);
+    it.el.classList.remove('selected');
+    if (selected === it) selected = multi.size ? [...multi][multi.size - 1] : null;
+  } else {
+    multi.add(it);
+    it.el.classList.add('selected');
+    selected = it;
+  }
+  refreshSelClasses();
+  $('adjust').classList.remove('open');
+}
+function selectAll() {
+  select(null);
+  items.forEach(it => { multi.add(it); it.el.classList.add('selected'); });
+  selected = items.length ? items[items.length - 1] : null;
+  refreshSelClasses();
 }
 function removeItem(it, instant) {
   if (editingText === it) commitTextEdit();
   if (editingTodo && editingTodo.it === it) commitTodoEdit();
-  if (selected === it) select(null);
+  if (multi.has(it)) {
+    multi.delete(it);
+    it.el.classList.remove('selected');
+    if (selected === it) selected = multi.size ? [...multi][multi.size - 1] : null;
+    refreshSelClasses();
+  }
   const el = it.el, url = it.url;
   if (instant) {
     el.remove();
@@ -814,14 +846,38 @@ function duplicateItem(src, noOffset) {
   return it;
 }
 
+function itemBBox(it) {
+  const h = itemH(it), c = itemCenter(it);
+  const cos = Math.abs(Math.cos(it.rot)), sin = Math.abs(Math.sin(it.rot));
+  const bw = it.w * cos + h * sin, bh = it.w * sin + h * cos;
+  return { x1: c.x - bw / 2, y1: c.y - bh / 2, x2: c.x + bw / 2, y2: c.y + bh / 2, bw, bh };
+}
 function arrangeBoard() {
   if (items.length < 2) return;
   commitTextEdit();
   commitTodoEdit();
-  const boxes = items.map(it => {
-    const h = itemH(it);
-    const cos = Math.abs(Math.cos(it.rot)), sin = Math.abs(Math.sin(it.rot));
-    return { it, bw: it.w * cos + h * sin, bh: it.w * sin + h * cos };
+  // Les annotations (traits, textes) qui recouvrent un élément suivent cet élément.
+  const SOLID = { img: 1, todo: 1, palette: 1, link: 1 };
+  const hosts = items.filter(i => SOLID[i.type]);
+  const attached = new Map(); // annotation -> hôte
+  for (const it of items) {
+    if (SOLID[it.type]) continue;
+    const bb = itemBBox(it);
+    const area = bb.bw * bb.bh || 1;
+    let best = null, bestCover = 0;
+    for (const h of hosts) {
+      const hb = itemBBox(h);
+      const ix = Math.max(0, Math.min(bb.x2, hb.x2) - Math.max(bb.x1, hb.x1));
+      const iy = Math.max(0, Math.min(bb.y2, hb.y2) - Math.max(bb.y1, hb.y1));
+      const cover = ix * iy / area;
+      if (cover > bestCover) { bestCover = cover; best = h; }
+    }
+    if (best && bestCover >= 0.45) attached.set(it, best);
+  }
+  const packed = items.filter(i => !attached.has(i));
+  const boxes = packed.map(it => {
+    const bb = itemBBox(it);
+    return { it, bw: bb.bw, bh: bb.bh };
   });
   const gap = 0.06 * boxes.reduce((s, b) => s + b.bw, 0) / boxes.length;
   const area = boxes.reduce((s, b) => s + (b.bw + gap) * (b.bh + gap), 0);
@@ -835,14 +891,24 @@ function arrangeBoard() {
     x += b.bw + gap;
     rowH = Math.max(rowH, b.bh);
   }
+  const deltas = new Map();
   for (const b of sorted) {
     const c = itemCenter(b.it);
-    b.it.x += b.nx - c.x;
-    b.it.y += b.ny - c.y;
+    const dx = b.nx - c.x, dy = b.ny - c.y;
+    deltas.set(b.it, [dx, dy]);
+    b.it.x += dx;
+    b.it.y += dy;
     b.it.el.classList.add('arranging');
     renderItem(b.it);
   }
-  setTimeout(() => { for (const b of sorted) b.it.el.classList.remove('arranging'); }, 600);
+  for (const [it, host] of attached) {
+    const d = deltas.get(host) || [0, 0];
+    it.x += d[0];
+    it.y += d[1];
+    it.el.classList.add('arranging');
+    renderItem(it);
+  }
+  setTimeout(() => { for (const it of items) it.el.classList.remove('arranging'); }, 600);
   scheduleSave();
   requestAnimationFrame(fitView);
   toast(tr('arranged'));
@@ -1300,6 +1366,12 @@ function rebaseSingle(pid) {
   if (gesture.type === 'pinch-item' || gesture.type === 'move') {
     const it = gesture.it;
     gesture = { type: 'move', it, pid, moved: true, start: { px: p.x, py: p.y, x: it.x, y: it.y } };
+  } else if (gesture.type === 'move-group') {
+    gesture = {
+      type: 'move-group', pid, moved: true,
+      start: { px: p.x, py: p.y },
+      members: gesture.members.map(s => ({ m: s.m, x: s.m.x, y: s.m.y })),
+    };
   } else if (gesture.type === 'pinch-view' || gesture.type === 'pan') {
     gesture = { type: 'pan', pid, start: { px: p.x, py: p.y, x: view.x, y: view.y } };
   } else if ((gesture.type === 'resize' || gesture.type === 'rotate') && gesture.pid !== pid) {
@@ -1444,6 +1516,8 @@ vp.addEventListener('pointerdown', e => {
     } else if (itemEl) {
       const it = items.find(i => i.id === itemEl.dataset.id);
       if (!it) return;
+      // Maj+clic : ajoute/retire de la sélection multiple
+      if (e.shiftKey) { toggleSelect(it); return; }
       // double-tap : édition texte / ligne de checklist / ouverture de lien
       const now = performance.now();
       if (it._lastTap && now - it._lastTap < 350) {
@@ -1456,11 +1530,29 @@ vp.addEventListener('pointerdown', e => {
         }
       }
       it._lastTap = now;
-      select(it);
-      bringToFront(it);
+      // membre d'une sélection multiple : on déplace tout le groupe
+      if (multi.size > 1 && multi.has(it)) {
+        gesture = {
+          type: 'move-group', pid: e.pointerId, moved: false,
+          start: { px: e.clientX, py: e.clientY },
+          members: [...multi].map(m => ({ m, x: m.x, y: m.y })),
+        };
+        gesture.lp = setTimeout(() => { // appui long : retire l'élément du groupe
+          if (gesture && gesture.lp && !gesture.moved) {
+            toggleSelect(it);
+            toast(tr('selCount')(multi.size));
+            gesture = null;
+          }
+        }, 500);
+        return;
+      }
+      // s'il existe déjà une sélection ailleurs, on attend de savoir si c'est un tap
+      // (remplace), un glisser (remplace) ou un appui long (ajoute au groupe)
+      const deferSelect = multi.size >= 1 && !multi.has(it) ? it : null;
+      if (!deferSelect) { select(it); bringToFront(it); }
       // Alt+glisser : on déplace une copie
       let target = it;
-      if (e.altKey) { const copy = duplicateItem(it, true); if (copy) target = copy; }
+      if (e.altKey && !deferSelect) { const copy = duplicateItem(it, true); if (copy) target = copy; }
       // actions au relâchement (tap sans déplacement) : cocher, ajouter une ligne, copier une couleur
       let tap = null;
       if (it.type === 'todo') {
@@ -1479,8 +1571,23 @@ vp.addEventListener('pointerdown', e => {
           };
         }
       }
-      gesture = { type: 'move', it: target, pid: e.pointerId, moved: false, tap, start: { px: e.clientX, py: e.clientY, x: target.x, y: target.y } };
+      gesture = { type: 'move', it: target, pid: e.pointerId, moved: false, tap, deferSelect, start: { px: e.clientX, py: e.clientY, x: target.x, y: target.y } };
+      const g = gesture;
+      g.lp = setTimeout(() => { // appui long : ajoute à la sélection existante
+        if (gesture === g && !g.moved && g.deferSelect) {
+          toggleSelect(g.deferSelect);
+          toast(tr('selCount')(multi.size));
+          gesture = null;
+        }
+      }, 500);
     } else {
+      if (e.shiftKey) { // Maj+glisser sur le fond : rectangle de sélection
+        const band = document.createElement('div');
+        band.id = 'band';
+        document.body.appendChild(band);
+        gesture = { type: 'band', pid: e.pointerId, el: band, start: { px: e.clientX, py: e.clientY } };
+        return;
+      }
       select(null);
       gesture = { type: 'pan', pid: e.pointerId, start: { px: e.clientX, py: e.clientY, x: view.x, y: view.y } };
     }
@@ -1495,6 +1602,27 @@ vp.addEventListener('pointermove', e => {
   if (!gesture || locked) return;
   const g = gesture;
 
+  if (g.type === 'move-group') {
+    if (e.pointerId !== g.pid) return;
+    if (!g.moved && Math.hypot(e.clientX - g.start.px, e.clientY - g.start.py) > 4) {
+      g.moved = true;
+      if (g.lp) { clearTimeout(g.lp); g.lp = null; }
+    }
+    if (!g.moved) return;
+    const dx = (e.clientX - g.start.px) / view.s, dy = (e.clientY - g.start.py) / view.s;
+    for (const s of g.members) { s.m.x = s.x + dx; s.m.y = s.y + dy; renderItem(s.m); }
+    return;
+  }
+  if (g.type === 'band') {
+    if (e.pointerId !== g.pid) return;
+    const x = Math.min(e.clientX, g.start.px), y = Math.min(e.clientY, g.start.py);
+    g.el.style.left = x + 'px';
+    g.el.style.top = y + 'px';
+    g.el.style.width = Math.abs(e.clientX - g.start.px) + 'px';
+    g.el.style.height = Math.abs(e.clientY - g.start.py) + 'px';
+    g.cur = { x: e.clientX, y: e.clientY };
+    return;
+  }
   if (g.type === 'draw') {
     if (e.pointerId !== g.pid) return;
     if (Math.hypot(e.clientX - g.lastX, e.clientY - g.lastY) < 1.5) return;
@@ -1506,7 +1634,11 @@ vp.addEventListener('pointermove', e => {
     }
   } else if (g.type === 'move') {
     if (e.pointerId !== g.pid) return;
-    if (!g.moved && Math.hypot(e.clientX - g.start.px, e.clientY - g.start.py) > 4) g.moved = true;
+    if (!g.moved && Math.hypot(e.clientX - g.start.px, e.clientY - g.start.py) > 4) {
+      g.moved = true;
+      if (g.lp) { clearTimeout(g.lp); g.lp = null; }
+      if (g.deferSelect) { select(g.deferSelect); bringToFront(g.deferSelect); g.deferSelect = null; }
+    }
     if (!g.moved) return;
     g.it.x = g.start.x + (e.clientX - g.start.px) / view.s;
     g.it.y = g.start.y + (e.clientY - g.start.py) / view.s;
@@ -1573,10 +1705,28 @@ function endPointer(e) {
   if (!pointers.has(e.pointerId)) return;
   pointers.delete(e.pointerId);
   if (!gesture) return;
+  if (gesture.lp) { clearTimeout(gesture.lp); gesture.lp = null; }
   if (gesture.type === 'draw') {
     if (e.pointerId === gesture.pid) {
       if (e.type === 'pointercancel') cancelDraw(gesture); else finishDraw(gesture);
       gesture = null;
+    }
+    return;
+  }
+  if (gesture.type === 'band') {
+    if (e.pointerId !== gesture.pid) return;
+    const g = gesture;
+    gesture = null;
+    g.el.remove();
+    if (e.type === 'pointerup' && g.cur) {
+      const a = toWorld(Math.min(g.start.px, g.cur.x), Math.min(g.start.py, g.cur.y));
+      const b = toWorld(Math.max(g.start.px, g.cur.x), Math.max(g.start.py, g.cur.y));
+      select(null);
+      for (const it of items) {
+        const bb = itemBBox(it);
+        if (bb.x1 < b.x && bb.x2 > a.x && bb.y1 < b.y && bb.y2 > a.y) toggleSelect(it);
+      }
+      if (multi.size) toast(tr('selCount')(multi.size));
     }
     return;
   }
@@ -1587,7 +1737,10 @@ function endPointer(e) {
   } else if (pointers.size === 0) {
     const g = gesture;
     gesture = null;
-    if (g.type === 'move' && !g.moved && g.tap && e.type === 'pointerup') g.tap();
+    if (g.type === 'move' && !g.moved && e.type === 'pointerup') {
+      if (g.deferSelect) { select(g.deferSelect); bringToFront(g.deferSelect); }
+      else if (g.tap) g.tap();
+    }
     scheduleSave();
   }
 }
@@ -1634,16 +1787,36 @@ function fitView() {
 }
 
 function rotateSelected(delta) {
-  if (!selected) return;
-  selected.rot = normAngle(Math.round((selected.rot + delta) / HALF_PI) * HALF_PI);
-  renderItem(selected);
+  if (!multi.size) return;
+  for (const it of multi) {
+    it.rot = normAngle(Math.round((it.rot + delta) / HALF_PI) * HALF_PI);
+    renderItem(it);
+  }
   scheduleSave();
 }
 function flipSelected() {
-  if (!selected || selected.type !== 'img') return;
-  selected.flip = !selected.flip;
-  renderItem(selected);
-  scheduleSave();
+  let n = 0;
+  for (const it of multi) {
+    if (it.type !== 'img') continue;
+    it.flip = !it.flip;
+    renderItem(it);
+    n++;
+  }
+  if (n) scheduleSave();
+}
+function removeSelected() {
+  for (const it of [...multi]) removeItem(it);
+}
+function duplicateSelection() {
+  if (!multi.size) return;
+  const sources = [...multi];
+  const copies = [];
+  for (const src of sources) {
+    const c = duplicateItem(src);
+    if (c) copies.push(c);
+  }
+  select(null);
+  copies.forEach((c, i) => { if (i === 0) select(c); else toggleSelect(c); });
 }
 
 /* ============================== crayon (mode) ============================== */
@@ -2389,8 +2562,8 @@ $('file-images').addEventListener('change', e => { importFiles(e.target.files); 
 $('file-doc').addEventListener('change', e => { importFiles(e.target.files); e.target.value = ''; });
 $('file-board').addEventListener('change', e => { if (e.target.files[0]) importBoard(e.target.files[0]); e.target.value = ''; });
 $('btn-fit').addEventListener('click', fitView);
-$('btn-del').addEventListener('click', () => { if (selected) removeItem(selected); });
-$('btn-dup').addEventListener('click', () => duplicateItem(selected));
+$('btn-del').addEventListener('click', removeSelected);
+$('btn-dup').addEventListener('click', duplicateSelection);
 $('btn-rot').addEventListener('click', () => rotateSelected(HALF_PI));
 $('btn-flip').addEventListener('click', flipSelected);
 $('help').addEventListener('click', e => { if (e.target === $('help')) $('help').classList.add('hidden'); });
@@ -2441,9 +2614,10 @@ document.addEventListener('keydown', e => {
     }
     return;
   }
-  if ((e.key === 'Delete' || e.key === 'Backspace') && selected) { e.preventDefault(); removeItem(selected); }
+  if ((e.key === 'Delete' || e.key === 'Backspace') && multi.size) { e.preventDefault(); removeSelected(); }
   else if ((e.metaKey || e.ctrlKey) && e.key === 'z' && tool === 'draw') { e.preventDefault(); $('pen-undo').click(); }
-  else if ((e.metaKey || e.ctrlKey) && e.key === 'd' && selected) { e.preventDefault(); duplicateItem(selected); }
+  else if ((e.metaKey || e.ctrlKey) && e.key === 'd' && multi.size) { e.preventDefault(); duplicateSelection(); }
+  else if ((e.metaKey || e.ctrlKey) && e.key === 'a') { e.preventDefault(); selectAll(); }
   else if (e.metaKey || e.ctrlKey) { /* laisse les raccourcis navigateur */ }
   else if (e.key === 'f' || e.key === 'F') fitView();
   else if (e.key === 'r') rotateSelected(HALF_PI);

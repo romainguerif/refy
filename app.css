@@ -370,6 +370,13 @@ body.locked #lockbar { opacity:1; pointer-events:auto; transform:scale(1); }
 /* ---------- rangement animé ---------- */
 .item.arranging { transition:transform .55s var(--swift); }
 
+/* ---------- sélection multiple ---------- */
+body.multi-sel .handle { display:none; }
+#band {
+  position:fixed; z-index:90; pointer-events:none;
+  border:1.4px solid var(--accent); background:rgba(43,78,230,.09); border-radius:3px;
+}
+
 /* ---------- recadrage ---------- */
 #crop {
   position:fixed; inset:0; z-index:240; background:rgba(0,0,0,.72);

@@ -2224,6 +2224,12 @@ async function loadBoardState(state) {
             rot: isFinite(+raw.rot) ? +raw.rot : 0,
             colors: raw.colors.filter(c => /^#[0-9a-f]{6}$/i.test(c)).slice(0, 8),
           });
+        } else if (type === 'grille' && isPlan(raw.plan)) {
+          addItem({
+            id: raw.id || uid(), type: 'grille', x: raw.x, y: raw.y, w: raw.w,
+            rot: isFinite(+raw.rot) ? +raw.rot : 0, size: +raw.size || 18,
+            plan: normPlan(raw.plan),
+          });
         } else if (type === 'link' && raw.target) {
           addItem({
             id: raw.id || uid(), type: 'link', x: raw.x, y: raw.y, w: raw.w,
@@ -2787,6 +2793,26 @@ if ('serviceWorker' in navigator && location.protocol === 'https:') {
    les timecodes se déduisent du BPM, donc changer le tempo met la grille à jour.
    La carte reste compacte ; le détail vit en plein écran (double-tape). */
 
+const GT = lang === 'fr' ? {
+  title: 'Titre', bpm: 'BPM', bars: 'Mesures', phrase: 'Phrase', notes: 'Notes',
+  sections: 'Sections', lanes: 'Pistes', marks: 'Repères', zones: 'Zones', energy: 'Énergie',
+  addSec: 'Ajouter une section', addLane: 'Ajouter une piste', addClip: 'clip',
+  addMark: 'Ajouter un repère', addZone: 'Ajouter une zone', addPt: 'Ajouter un point',
+  name: 'nom', label: 'libellé', from: 'de', to: 'à', bar: 'mesure', level: 'niveau',
+  none: 'plein', fin: 'entrée', fout: 'sortie', fboth: 'entrée + sortie', fgrow: 'croissant',
+  accent: 'accent', del: 'Supprimer', edit: 'Éditer', done: 'Terminé',
+  perBar: n => `1 mesure = ${n} s`, empty: 'Rien pour l\u2019instant',
+} : {
+  title: 'Title', bpm: 'BPM', bars: 'Bars', phrase: 'Phrase', notes: 'Notes',
+  sections: 'Sections', lanes: 'Lanes', marks: 'Markers', zones: 'Zones', energy: 'Energy',
+  addSec: 'Add a section', addLane: 'Add a lane', addClip: 'clip',
+  addMark: 'Add a marker', addZone: 'Add a zone', addPt: 'Add a point',
+  name: 'name', label: 'label', from: 'from', to: 'to', bar: 'bar', level: 'level',
+  none: 'full', fin: 'fade in', fout: 'fade out', fboth: 'in + out', fgrow: 'grow',
+  accent: 'accent', del: 'Delete', edit: 'Edit', done: 'Done',
+  perBar: n => `1 bar = ${n} s`, empty: 'Nothing yet',
+};
+
 function isPlan(o) {
   return !!o && typeof o === 'object' && !Array.isArray(o)
     && typeof o.title === 'string' && typeof o.bpm === 'number' && typeof o.bars === 'number'
@@ -2794,13 +2820,25 @@ function isPlan(o) {
 }
 function normPlan(raw) {
   const p = { ...raw };
+  p.title = String(p.title || 'Sans titre');
+  p.bpm = clamp(+p.bpm || 120, 20, 400);
+  p.bars = clamp(Math.round(+p.bars) || 16, 1, 9999);
   p.meter = Array.isArray(p.meter) && p.meter.length ? p.meter : [4, 4];
-  p.phrase = p.phrase || 16;
-  p.sections = (p.sections || []).slice().sort((a, b) => a.bar - b.bar);
-  p.lanes = (p.lanes || []).map(l => ({ name: l.name || '', clips: l.clips || [] }));
-  p.energy = (p.energy || []).slice().sort((a, b) => a.bar - b.bar);
-  p.markers = p.markers || [];
-  p.zones = p.zones || [];
+  p.phrase = clamp(Math.round(+p.phrase) || 16, 1, 64);
+  p.sections = (p.sections || []).map(s => ({ ...s, bar: clamp(Math.round(+s.bar) || 1, 1, p.bars), name: String(s.name || '') }));
+  p.lanes = (p.lanes || []).map(l => ({
+    name: String(l.name || ''),
+    clips: (l.clips || []).map(c => {
+      const from = clamp(Math.round(+c.from) || 1, 1, p.bars);
+      return { ...c, from, to: clamp(Math.round(+c.to) || from, from, p.bars) };
+    }),
+  }));
+  p.energy = (p.energy || []).map(e => ({ bar: clamp(Math.round(+e.bar) || 1, 1, p.bars), v: clamp(+e.v || 0, 0, 1) }));
+  p.markers = (p.markers || []).map(m => ({ bar: clamp(Math.round(+m.bar) || 1, 1, p.bars), label: String(m.label || '') }));
+  p.zones = (p.zones || []).map(z => {
+    const from = clamp(Math.round(+z.from) || 1, 1, p.bars);
+    return { from, to: clamp(Math.round(+z.to) || from, from, p.bars), label: String(z.label || '') };
+  });
   p.history = p.history || [];
   return p;
 }
@@ -2814,12 +2852,13 @@ function planTime(sec) {
   sec = Math.max(0, Math.round(sec));
   return Math.floor(sec / 60) + ':' + String(sec % 60).padStart(2, '0');
 }
+/* le tri se fait à l'affichage : l'ordre de saisie n'a donc pas d'importance */
 function planSections(p) {
-  const s = p.sections;
+  const s = p.sections.slice().sort((a, b) => a.bar - b.bar);
   return s.map((x, i) => ({ ...x, from: x.bar, to: i + 1 < s.length ? s[i + 1].bar - 1 : p.bars }));
 }
 function planEnergyAt(p, bar) {
-  const e = p.energy;
+  const e = p.energy.slice().sort((a, b) => a.bar - b.bar);
   if (!e.length) return .5;
   if (bar <= e[0].bar) return e[0].v;
   for (let i = 1; i < e.length; i++) {
@@ -2851,11 +2890,11 @@ function planLaneStates(p, s) {
     else if (cl.some(c => c.to >= s.from && c.to <= s.to && c.to < p.bars)) out.push(l.name);
     else keep.push(l.name);
   }
-  for (const m of p.markers) if (m.bar >= s.from && m.bar <= s.to) notes.push(m.label + ' — mesure ' + m.bar);
+  for (const m of p.markers) if (m.bar >= s.from && m.bar <= s.to) notes.push(m.label + ' — ' + GT.bar + ' ' + m.bar);
   return { inn, keep, out, notes };
 }
 function planText(p) {
-  const L = [`${p.title.toUpperCase()} — ${p.bpm} BPM — ${p.bars} mesures — ${planTime(planLen(p))}`, ''];
+  const L = [`${p.title.toUpperCase()} — ${p.bpm} BPM — ${p.bars} ${GT.bars.toLowerCase()} — ${planTime(planLen(p))}`, ''];
   for (const s of planSections(p)) {
     const st = planLaneStates(p, s);
     L.push(`${planTime(planBarTime(p, s.from)).padStart(5)}  ${String(s.from).padStart(3)} → ${String(s.to).padStart(3)}  ${s.name}`);
@@ -2865,6 +2904,7 @@ function planText(p) {
   }
   return L.join('\n');
 }
+const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
 /* ---------- la carte sur le board ---------- */
 function addGrilleItem(plan, at) {
@@ -2877,54 +2917,57 @@ function addGrilleItem(plan, at) {
 }
 function grilleSpark(p) {
   if (p.energy.length < 2) return '';
-  const pts = p.energy.map(e => `${(((e.bar - 1) / p.bars) * 100).toFixed(1)},${(24 - clamp(e.v, 0, 1) * 22).toFixed(1)}`).join(' ');
+  const e = p.energy.slice().sort((a, b) => a.bar - b.bar);
+  const pts = e.map(x => `${(((x.bar - 1) / p.bars) * 100).toFixed(1)},${(24 - clamp(x.v, 0, 1) * 22).toFixed(1)}`).join(' ');
   return `<svg viewBox="0 0 100 24" preserveAspectRatio="none"><polyline points="${pts}"/></svg>`;
 }
 function updateGrilleDOM(it, el) {
   const p = it.plan, root = el || it.el;
+  if (!root) return;
   root.querySelector('.gname').textContent = p.title;
   root.querySelector('.gmeta').textContent =
-    `${p.bpm} BPM · ${p.bars} mesures · ${planTime(planLen(p))}`;
+    `${p.bpm} BPM · ${p.bars} ${GT.bars.toLowerCase()} · ${planTime(planLen(p))}`;
   root.querySelector('.gstrip').innerHTML = planSections(p)
     .map(s => `<i style="width:${planSpan(p, s.from, s.to)}%;background:${grayPaper(planLevel(p, s))}"></i>`).join('');
   root.querySelector('.gspark').innerHTML = grilleSpark(p);
 }
 
 /* ---------- le plein écran ---------- */
-const gview = { it: null, mode: 'liste', zoom: 1, playing: false, t0: 0, elapsed: 0, bar: -1, key: '' };
+const gview = { it: null, mode: 'liste', zoom: 1, edit: false, playing: false, t0: 0, elapsed: 0, bar: -1, key: '' };
 let gRaf = null;
 
 function grilleTimeline(p) {
   const secs = planSections(p);
   const row = (name, inner, cls) =>
-    `<div class="grow ${cls || ''}"><span class="gn">${name}</span><span class="gt">${inner}</span></div>`;
+    `<div class="grow ${cls || ''}"><span class="gn">${esc(name)}</span><span class="gt">${inner}</span></div>`;
 
   const sections = secs.map((s, i) =>
-    `<b class="gsec" data-si="${i}" style="left:${planPct(p, s.from)}%;width:${planSpan(p, s.from, s.to)}%;background:${grayDark(planLevel(p, s))}"><em>${s.name}</em></b>`).join('');
+    `<b class="gsec" data-si="${i}" style="left:${planPct(p, s.from)}%;width:${planSpan(p, s.from, s.to)}%;background:${grayDark(planLevel(p, s))}"><em>${esc(s.name)}</em></b>`).join('');
 
   const ruler = secs.map(s =>
     `<b class="gtick" style="left:${planPct(p, s.from)}%">${planTime(planBarTime(p, s.from))}</b>`).join('');
 
-  const energy = p.energy.length > 1
+  const e = p.energy.slice().sort((a, b) => a.bar - b.bar);
+  const energy = e.length > 1
     ? `<svg viewBox="0 0 1000 100" preserveAspectRatio="none"><polyline vector-effect="non-scaling-stroke" points="${
-        p.energy.map(e => `${(((e.bar - 1) / p.bars) * 1000).toFixed(1)},${(100 - clamp(e.v, 0, 1) * 92).toFixed(1)}`).join(' ')}"/></svg>`
+        e.map(x => `${(((x.bar - 1) / p.bars) * 1000).toFixed(1)},${(100 - clamp(x.v, 0, 1) * 92).toFixed(1)}`).join(' ')}"/></svg>`
     : '';
 
   const lanes = p.lanes.map(l => row(l.name, `<b class="glane"></b>` + l.clips.map(c => {
     const fade = c.fade === 'grow' ? 'g' : c.fade === 'in' ? 'i' : c.fade === 'out' ? 'o' : c.fade === 'both' ? 'b' : '';
-    const lab = c.label ? `<b class="gclab" style="left:${planPct(p, c.from) + planSpan(p, c.from, c.to) / 2}%">${c.label}</b>` : '';
+    const lab = c.label ? `<b class="gclab" style="left:${planPct(p, c.from) + planSpan(p, c.from, c.to) / 2}%">${esc(c.label)}</b>` : '';
     return `<b class="gclip ${c.accent ? 'acc' : ''} ${fade ? 'f' + fade : ''}" style="left:${planPct(p, c.from)}%;width:${planSpan(p, c.from, c.to)}%"></b>` + lab;
   }).join(''))).join('');
 
   const zones = p.zones.map(z => row('', `<b class="gzone" style="left:${planPct(p, z.from)}%;width:${planSpan(p, z.from, z.to)}%"></b>`
-    + `<b class="gzlab" style="left:${planPct(p, z.from) + planSpan(p, z.from, z.to) / 2}%">${z.label || ''}</b>`, 'gz2')).join('');
+    + `<b class="gzlab" style="left:${planPct(p, z.from) + planSpan(p, z.from, z.to) / 2}%">${esc(z.label)}</b>`, 'gz2')).join('');
 
-  const marks = p.markers.map(m => `<b class="gmark" style="left:${planPct(p, m.bar)}%"><em>${m.label} — ${m.bar}</em></b>`).join('');
+  const marks = p.markers.map(m => `<b class="gmark" style="left:${planPct(p, m.bar)}%"><em>${esc(m.label)} — ${m.bar}</em></b>`).join('');
 
   return `<div class="gscroll"><div class="ginner" style="--pw:${(100 * p.phrase / p.bars).toFixed(4)}%">
     ${row('', sections, 'gs')}
     ${row('', ruler, 'gr')}
-    ${energy ? row('Énergie', energy, 'ge') : ''}
+    ${energy ? row(GT.energy, energy, 'ge') : ''}
     ${lanes}${zones}
     <span class="gover">${marks}<b class="ghead"></b></span>
     <span class="gtap"></span>
@@ -2934,49 +2977,124 @@ function grilleTimeline(p) {
 function grilleList(p) {
   return planSections(p).map((s, i) => {
     const st = planLaneStates(p, s);
-    const parts = [...st.inn.map(x => `<b>+ ${x}</b>`), ...st.keep, ...st.out.map(x => `<s>− ${x}</s>`)];
+    const parts = [...st.inn.map(x => `<b>+ ${esc(x)}</b>`), ...st.keep.map(esc), ...st.out.map(x => `<s>− ${esc(x)}</s>`)];
     return `<button class="gli" data-si="${i}">
       <span class="glh"><span class="glt">${planTime(planBarTime(p, s.from))}</span>
-        <span class="gln">${s.name}</span><span class="glb">${s.from} → ${s.to}</span></span>
+        <span class="gln">${esc(s.name)}</span><span class="glb">${s.from} → ${s.to}</span></span>
       ${parts.length ? `<span class="gli-in">${parts.join(', ')}</span>` : ''}
-      ${st.notes.map(n => `<span class="gli-note">${n}</span>`).join('')}
+      ${st.notes.map(n => `<span class="gli-note">${esc(n)}</span>`).join('')}
     </button>`;
   }).join('');
 }
 
+/* ---------- l'édition ---------- */
+const gnum = (kind, i, f, v, ph, l) =>
+  `<input class="gin gnum" type="number" inputmode="numeric" data-kind="${kind}" data-i="${i}"${l === undefined ? '' : ` data-l="${l}"`} data-f="${f}" value="${v}" placeholder="${esc(ph || '')}" aria-label="${esc(ph || f)}">`;
+const gtxt = (kind, i, f, v, ph, l) =>
+  `<input class="gin" type="text" data-kind="${kind}" data-i="${i}"${l === undefined ? '' : ` data-l="${l}"`} data-f="${f}" value="${esc(v)}" placeholder="${esc(ph || '')}" aria-label="${esc(ph || f)}">`;
+const gdel = (what, i, l) => `<button class="gx" data-del="${what}" data-i="${i}"${l === undefined ? '' : ` data-l="${l}"`} title="${GT.del}">×</button>`;
+
+function grilleEditor(p) {
+  const fades = [['', GT.none], ['in', GT.fin], ['out', GT.fout], ['both', GT.fboth], ['grow', GT.fgrow]];
+
+  const secs = p.sections.map((s, i) => `<div class="ger">
+    ${gnum('sec', i, 'bar', s.bar, GT.bar)}
+    ${gtxt('sec', i, 'name', s.name, GT.name)}
+    ${gdel('sec', i)}
+  </div>`).join('');
+
+  const lanes = p.lanes.map((l, i) => `<div class="gelane">
+    <div class="ger">
+      ${gtxt('lane', i, 'name', l.name, GT.name)}
+      ${gdel('lane', i)}
+    </div>
+    ${l.clips.map((c, j) => `<div class="ger gclipr">
+      ${gnum('clip', j, 'from', c.from, GT.from, i)}
+      ${gnum('clip', j, 'to', c.to, GT.to, i)}
+      <select class="gin gsel" data-kind="clip" data-i="${j}" data-l="${i}" data-f="fade" aria-label="fade">
+        ${fades.map(f => `<option value="${f[0]}"${(c.fade || '') === f[0] ? ' selected' : ''}>${f[1]}</option>`).join('')}
+      </select>
+      ${gtxt('clip', j, 'label', c.label || '', GT.label, i)}
+      <label class="gck"><input type="checkbox" data-kind="clip" data-i="${j}" data-l="${i}" data-f="accent"${c.accent ? ' checked' : ''}><span>${GT.accent}</span></label>
+      ${gdel('clip', j, i)}
+    </div>`).join('')}
+    <button class="gadd gsub" data-add="clip" data-l="${i}">+ ${GT.addClip}</button>
+  </div>`).join('');
+
+  const marks = p.markers.map((m, i) => `<div class="ger">
+    ${gnum('mk', i, 'bar', m.bar, GT.bar)}${gtxt('mk', i, 'label', m.label, GT.label)}${gdel('mk', i)}
+  </div>`).join('');
+
+  const zones = p.zones.map((z, i) => `<div class="ger">
+    ${gnum('zn', i, 'from', z.from, GT.from)}${gnum('zn', i, 'to', z.to, GT.to)}${gtxt('zn', i, 'label', z.label, GT.label)}${gdel('zn', i)}
+  </div>`).join('');
+
+  const energy = p.energy.map((e, i) => `<div class="ger">
+    ${gnum('en', i, 'bar', e.bar, GT.bar)}
+    <input class="gin grange" type="range" min="0" max="1" step="0.01" data-kind="en" data-i="${i}" data-f="v" value="${e.v}" aria-label="${GT.level}">
+    <span class="gval">${Math.round(e.v * 100)}</span>${gdel('en', i)}
+  </div>`).join('');
+
+  return `<div class="ged">
+    <div class="ger gtop">${gtxt('top', 0, 'title', p.title, GT.title)}</div>
+    <div class="ger gtop3">
+      <label>${GT.bpm}${gnum('top', 0, 'bpm', p.bpm, GT.bpm)}</label>
+      <label>${GT.bars}${gnum('top', 0, 'bars', p.bars, GT.bars)}</label>
+      <label>${GT.phrase}${gnum('top', 0, 'phrase', p.phrase, GT.phrase)}</label>
+    </div>
+    <p class="gdur">${planTime(planLen(p))} · ${GT.perBar(String(Math.round(planBarSec(p) * 100) / 100).replace('.', lang === 'fr' ? ',' : '.'))}</p>
+    <textarea class="gin gta" data-kind="top" data-i="0" data-f="notes" placeholder="${GT.notes}">${esc(p.notes || '')}</textarea>
+
+    <h4>${GT.sections}</h4>${secs || `<p class="ghint">${GT.empty}</p>`}
+    <button class="gadd" data-add="sec">+ ${GT.addSec}</button>
+
+    <h4>${GT.lanes}</h4>${lanes || `<p class="ghint">${GT.empty}</p>`}
+    <button class="gadd" data-add="lane">+ ${GT.addLane}</button>
+
+    <h4>${GT.marks}</h4>${marks}
+    <button class="gadd" data-add="mk">+ ${GT.addMark}</button>
+
+    <h4>${GT.zones}</h4>${zones}
+    <button class="gadd" data-add="zn">+ ${GT.addZone}</button>
+
+    <h4>${GT.energy}</h4>${energy}
+    <button class="gadd" data-add="en">+ ${GT.addPt}</button>
+  </div>`;
+}
+
 function renderGrille() {
   const p = gview.it.plan;
-  const hist = p.history.map(h => `<h4>${h.title || 'Version précédente'}${h.bars ? ' — ' + h.bars + ' mesures' : ''}</h4>`
-    + (h.note ? `<p class="ghint">${h.note}</p>` : '')
-    + (h.sections || []).map(s => `<div class="ghl"><span>${s.from} → ${s.to}</span><span>${planTime(planBarTime(p, s.from))}</span><span>${s.name}</span></div>`).join('')).join('');
+  const hist = gview.edit ? '' : p.history.map(h => `<h4>${esc(h.title || 'Version')}${h.bars ? ' — ' + h.bars + ' ' + GT.bars.toLowerCase() : ''}</h4>`
+    + (h.note ? `<p class="ghint">${esc(h.note)}</p>` : '')
+    + (h.sections || []).map(s => `<div class="ghl"><span>${s.from} → ${s.to}</span><span>${planTime(planBarTime(p, s.from))}</span><span>${esc(s.name)}</span></div>`).join('')).join('');
 
   $('grille').innerHTML = `
     <div class="ghead-bar">
       <button class="gclose" title="${tr('gClose')}"><svg class="ic" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
-      <span class="gtitle">${p.title}</span>
-      <span class="gsub">${p.bpm} BPM · ${p.bars} mesures · ${planTime(planLen(p))}</span>
+      <span class="gtitle">${esc(p.title)}</span>
+      <span class="gsub">${p.bpm} BPM · ${p.bars} ${GT.bars.toLowerCase()} · ${planTime(planLen(p))}</span>
     </div>
     <div class="gbar2">
-      <span class="gseg">
+      ${gview.edit ? '' : `<span class="gseg">
         <button data-mode="grille" class="${gview.mode === 'grille' ? 'on' : ''}">${tr('gGrid')}</button>
         <button data-mode="liste" class="${gview.mode === 'liste' ? 'on' : ''}">${tr('gList')}</button>
-      </span>
-      ${gview.mode === 'grille' ? [1, 2, 4].map(z => `<button class="gz${gview.zoom === z ? ' on' : ''}" data-zoom="${z}">×${z}</button>`).join('') : ''}
-      <button class="gz gcopy">${tr('gCopy')}</button>
+      </span>`}
+      ${!gview.edit && gview.mode === 'grille' ? [1, 2, 4].map(z => `<button class="gz${gview.zoom === z ? ' on' : ''}" data-zoom="${z}">×${z}</button>`).join('') : ''}
+      ${gview.edit ? '<span class="gspacer"></span>' : `<button class="gz gcopy">${tr('gCopy')}</button>`}
+      <button class="gz gedit${gview.edit ? ' on' : ''}" data-edit="1">${gview.edit ? GT.done : GT.edit}</button>
     </div>
     <div class="gbody">
-      ${gview.mode === 'grille' ? grilleTimeline(p) : ''}
-      <div class="glist">${grilleList(p)}</div>
-      ${p.notes ? `<p class="gnotes">${p.notes}</p>` : ''}
-      ${hist ? `<div class="ghist">${hist}</div>` : ''}
+      ${gview.edit ? grilleEditor(p) : (gview.mode === 'grille' ? grilleTimeline(p) : '') + `<div class="glist">${grilleList(p)}</div>`
+        + (p.notes ? `<p class="gnotes">${esc(p.notes)}</p>` : '')
+        + (hist ? `<div class="ghist">${hist}</div>` : '')}
     </div>
-    <div class="gtrans">
+    ${gview.edit ? '' : `<div class="gtrans">
       <button class="gplay">${gview.playing ? '❚❚' : '▶'}</button>
       <span class="ginfo"><b class="gnow"></b><i class="gnext"></i></span>
       <span class="gclock"></span>
-    </div>`;
+    </div>`}`;
   $('grille').style.setProperty('--gzoom', gview.zoom);
-  paintGrille(true);
+  if (!gview.edit) paintGrille(true);
 }
 
 function paintGrille(full) {
@@ -3039,7 +3157,7 @@ function stopGrille() {
   const b = $('grille').querySelector('.gplay');
   if (b) { b.textContent = '▶'; b.classList.remove('on'); }
   if (!locked) releaseWakeLock();
-  paintGrille(true);
+  if (!gview.edit) paintGrille(true);
 }
 function seekGrille(sec) {
   const p = gview.it.plan;
@@ -3050,7 +3168,7 @@ function seekGrille(sec) {
 }
 function openGrille(it) {
   gview.it = it;
-  gview.elapsed = 0; gview.zoom = 1;
+  gview.elapsed = 0; gview.zoom = 1; gview.edit = false;
   gview.mode = innerWidth >= 760 ? 'grille' : 'liste';
   renderGrille();
   $('grille').classList.remove('hidden');
@@ -3061,15 +3179,106 @@ function closeGrille() {
   gview.it = null;
 }
 
+/* la cible d'un champ de saisie */
+function grilleTarget(p, el) {
+  const k = el.dataset.kind, i = +el.dataset.i;
+  if (k === 'sec') return p.sections[i];
+  if (k === 'lane') return p.lanes[i];
+  if (k === 'clip') return (p.lanes[+el.dataset.l] || { clips: [] }).clips[i];
+  if (k === 'mk') return p.markers[i];
+  if (k === 'zn') return p.zones[i];
+  if (k === 'en') return p.energy[i];
+  if (k === 'top') return p;
+  return null;
+}
+const GNUM = { bar: 1, bars: 1, bpm: 1, phrase: 1, from: 1, to: 1 };
+
+function grilleEdited(structural) {
+  const it = gview.it;
+  updateGrilleDOM(it);
+  scheduleSave();
+  if (structural) renderGrille();
+  else {
+    const g = $('grille'), p = it.plan;
+    const sub = g.querySelector('.gsub'), ttl = g.querySelector('.gtitle'), dur = g.querySelector('.gdur');
+    if (ttl) ttl.textContent = p.title;
+    if (sub) sub.textContent = `${p.bpm} BPM · ${p.bars} ${GT.bars.toLowerCase()} · ${planTime(planLen(p))}`;
+    if (dur) dur.textContent = `${planTime(planLen(p))} · ${GT.perBar(String(Math.round(planBarSec(p) * 100) / 100).replace('.', lang === 'fr' ? ',' : '.'))}`;
+  }
+}
+
+$('grille').addEventListener('input', e => {
+  const el = e.target;
+  if (!gview.it || !el.dataset.kind) return;
+  const p = gview.it.plan;
+  const o = grilleTarget(p, el);
+  if (!o) return;
+  const f = el.dataset.f;
+  if (f === 'accent') o.accent = el.checked;
+  else if (f === 'v') {
+    o.v = clamp(parseFloat(el.value) || 0, 0, 1);
+    const out = el.parentElement.querySelector('.gval');
+    if (out) out.textContent = Math.round(o.v * 100);
+  } else if (f === 'fade') { if (el.value) o.fade = el.value; else delete o.fade; }
+  else if (GNUM[f]) {
+    const n = parseInt(el.value, 10);
+    if (!isFinite(n)) return;
+    o[f] = Math.max(1, n);
+  } else o[f] = el.value;
+  grilleEdited(false);
+});
+
+/* au relâchement d'un champ : on borne et on renumérote proprement */
+$('grille').addEventListener('change', e => {
+  if (!gview.it || !e.target.dataset.kind) return;
+  if (e.target.dataset.f === 'accent' || e.target.dataset.f === 'v') return;
+  gview.it.plan = normPlan(gview.it.plan);
+  grilleEdited(true);
+});
+
 $('grille').addEventListener('click', e => {
-  const p = gview.it && gview.it.plan;
-  if (!p) return;
+  if (!gview.it) return;
+  const p = gview.it.plan;
   if (e.target.closest('.gclose')) { closeGrille(); return; }
   if (e.target.closest('.gplay')) { gview.playing ? stopGrille() : playGrille(); return; }
   if (e.target.closest('.gcopy')) {
     navigator.clipboard.writeText(planText(p)).then(() => toast(tr('gCopied'))).catch(() => {});
     return;
   }
+  if (e.target.closest('[data-edit]')) {
+    gview.edit = !gview.edit;
+    if (gview.edit) stopGrille();
+    else gview.it.plan = normPlan(p);
+    renderGrille();
+    scheduleSave();
+    return;
+  }
+  const add = e.target.closest('[data-add]');
+  if (add) {
+    const k = add.dataset.add;
+    const last = p.sections.reduce((m, s) => Math.max(m, s.bar), 0);
+    if (k === 'sec') p.sections.push({ bar: clamp(last + p.phrase, 1, p.bars), name: '' });
+    if (k === 'lane') p.lanes.push({ name: '', clips: [] });
+    if (k === 'clip') p.lanes[+add.dataset.l].clips.push({ from: 1, to: Math.min(p.phrase, p.bars) });
+    if (k === 'mk') p.markers.push({ bar: 1, label: '' });
+    if (k === 'zn') p.zones.push({ from: 1, to: p.bars, label: '' });
+    if (k === 'en') p.energy.push({ bar: 1, v: .5 });
+    grilleEdited(true);
+    return;
+  }
+  const del = e.target.closest('[data-del]');
+  if (del) {
+    const k = del.dataset.del, i = +del.dataset.i;
+    if (k === 'sec') p.sections.splice(i, 1);
+    if (k === 'lane') p.lanes.splice(i, 1);
+    if (k === 'clip') p.lanes[+del.dataset.l].clips.splice(i, 1);
+    if (k === 'mk') p.markers.splice(i, 1);
+    if (k === 'zn') p.zones.splice(i, 1);
+    if (k === 'en') p.energy.splice(i, 1);
+    grilleEdited(true);
+    return;
+  }
+  if (gview.edit) return;
   const mode = e.target.closest('[data-mode]');
   if (mode) { gview.mode = mode.dataset.mode; renderGrille(); return; }
   const z = e.target.closest('[data-zoom]');

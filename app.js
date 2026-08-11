@@ -11,6 +11,10 @@ let ready = false;         // bloque la sauvegarde tant que la restauration n'es
 let library = null;        // {v, current, boards:[{id, name, created, updated, count}]}
 let tool = null;           // null = sélection, 'draw' = crayon
 let editingText = null;    // item texte en cours d'édition
+let editingTodo = null;    // {it, idx, span} ligne de checklist en cours d'édition
+let presenting = false;    // mode présentation : UI masquée, navigation seule
+let calScope = 'board';    // 'board' | 'all' — vue du calendrier
+let libTab = 'boards';     // 'boards' | 'notes' — onglet de la librairie
 const pointers = new Map(); // pointerId -> {x, y}
 const MIN_W = 12, MAX_W = 100000, MIN_S = 0.02, MAX_S = 40, MAX_DIM = 2560;
 
@@ -29,11 +33,113 @@ try {
   if (p && p.size >= 2 && p.size <= 24) pen.size = p.size;
 } catch (_) {}
 
+/* ============================== langue ============================== */
+const lang = (navigator.language || 'en').toLowerCase().startsWith('fr') ? 'fr' : 'en';
+const LOCALE = lang === 'fr' ? LOCALE : 'en-GB';
+const I18N_FR = {
+  saveFull: 'Sauvegarde impossible (stockage plein ?)', imgFull: 'Image non sauvegardée (stockage plein ?)',
+  badFormat: 'Format non pris en charge : ', cantImport: 'Impossible d\'importer ',
+  pdfReading: 'Lecture du PDF…', pdfOffline: 'Import PDF impossible (connexion nécessaire la première fois)',
+  pdfPartial: (n, t) => `${n} premières pages importées (sur ${t})`, pdfDone: n => `PDF importé (${n} page${n > 1 ? 's' : ''})`,
+  edgeFail: 'Extraction de contours impossible sur cette image',
+  bwLabel: 'Noir & blanc', edgeLabel: 'Contours', contrastLabel: 'Contraste', opacityLabel: 'Opacité',
+  resetLabel: 'Réinitialiser', extractLabel: 'Extraire la palette',
+  palWorking: 'Extraction de la palette…', palNone: 'Pas de couleurs exploitables',
+  palDone: 'Palette extraite — tape une couleur pour copier son code', palFail: 'Extraction impossible sur cette image',
+  copied: h => h + ' copié',
+  pngWorking: 'Rendu du board…', pngDone: 'PNG exporté', pngFail: 'Échec de l\'export PNG', boardEmpty: 'Board vide',
+  presToast: 'Présentation — l\'œil en bas à droite pour sortir',
+  lockToast: 'Verrouillé — maintiens le cadenas pour déverrouiller', unlockToast: 'Déverrouillé',
+  renameTitle: 'Renommer', deleteTitle: 'Supprimer', linkTitle: 'Poser un lien sur le board actuel',
+  linkPosed: n => `Lien vers « ${n} » posé — double-tape pour l'ouvrir`,
+  namePrompt: 'Nom du board', delConfirm: n => `Supprimer « ${n} » et tout son contenu ?`,
+  newBoardToast: 'Nouveau board', boardN: n => 'Board ' + n,
+  countLabel: n => `${n} élément${n > 1 ? 's' : ''}`,
+  loading: 'Chargement…', notesEmpty: 'Aucune note pour l\'instant. Pose du texte (T) ou une checklist (menu ···) sur un board.',
+  emptyNote: '(vide)', allDone: 'Tout est fait', doneCount: (d, t) => `${d}/${t} fait`, todoAdd: 'Ajouter',
+  linkDead: 'Ce board n\'existe plus', calNone: 'Rien de prévu.', calSaveFail: 'Calendrier non sauvegardé',
+  nothingExport: 'Rien à sauvegarder', backupWorking: 'Préparation du backup…', backupDone: 'Backup exporté : ',
+  exportFail: 'Échec de l\'export', fileBad: 'Fichier illisible', notBackup: 'Ce n\'est pas un backup Refy',
+  importing: 'Import…', backupBad: 'Backup illisible',
+  importDone: (n, c) => `« ${n} » importé (${c} élément${c > 1 ? 's' : ''})`,
+  noStorage: 'Stockage indisponible : les boards ne seront pas conservés',
+  clearConfirm: 'Supprimer tout le contenu de ce board ?',
+  swatches: ['Charbon', 'Graphite', 'Nuit', 'Sauge', 'Papier', 'Blanc'],
+  week: ['L', 'M', 'M', 'J', 'V', 'S', 'D'],
+};
+const I18N_EN = {
+  saveFull: 'Could not save (storage full?)', imgFull: 'Image not saved (storage full?)',
+  badFormat: 'Unsupported format: ', cantImport: 'Could not import ',
+  pdfReading: 'Reading PDF…', pdfOffline: 'PDF import unavailable (needs a connection the first time)',
+  pdfPartial: (n, t) => `First ${n} pages imported (of ${t})`, pdfDone: n => `PDF imported (${n} page${n > 1 ? 's' : ''})`,
+  edgeFail: 'Could not extract edges from this image',
+  bwLabel: 'Black & white', edgeLabel: 'Edges', contrastLabel: 'Contrast', opacityLabel: 'Opacity',
+  resetLabel: 'Reset', extractLabel: 'Extract palette',
+  palWorking: 'Extracting palette…', palNone: 'No usable colors',
+  palDone: 'Palette extracted — tap a color to copy its code', palFail: 'Could not extract from this image',
+  copied: h => h + ' copied',
+  pngWorking: 'Rendering board…', pngDone: 'PNG exported', pngFail: 'PNG export failed', boardEmpty: 'Empty board',
+  presToast: 'Presentation — tap the eye bottom right to exit',
+  lockToast: 'Locked — hold the padlock to unlock', unlockToast: 'Unlocked',
+  renameTitle: 'Rename', deleteTitle: 'Delete', linkTitle: 'Drop a link on the current board',
+  linkPosed: n => `Link to “${n}” added — double-tap to open it`,
+  namePrompt: 'Board name', delConfirm: n => `Delete “${n}” and all its content?`,
+  newBoardToast: 'New board', boardN: n => 'Board ' + n,
+  countLabel: n => `${n} item${n > 1 ? 's' : ''}`,
+  loading: 'Loading…', notesEmpty: 'No notes yet. Drop some text (T) or a checklist (··· menu) on a board.',
+  emptyNote: '(empty)', allDone: 'All done', doneCount: (d, t) => `${d}/${t} done`, todoAdd: 'Add',
+  linkDead: 'This board no longer exists', calNone: 'Nothing planned.', calSaveFail: 'Calendar not saved',
+  nothingExport: 'Nothing to save', backupWorking: 'Preparing backup…', backupDone: 'Backup exported: ',
+  exportFail: 'Export failed', fileBad: 'Unreadable file', notBackup: 'This is not a Refy backup',
+  importing: 'Importing…', backupBad: 'Unreadable backup',
+  importDone: (n, c) => `“${n}” imported (${c} item${c > 1 ? 's' : ''})`,
+  noStorage: 'Storage unavailable: boards will not be kept',
+  clearConfirm: 'Delete everything on this board?',
+  swatches: ['Charcoal', 'Graphite', 'Night', 'Sage', 'Paper', 'White'],
+  week: ['M', 'T', 'W', 'T', 'F', 'S', 'S'],
+  /* — textes statiques du DOM — */
+  tbBoards: 'My boards', tbAdd: 'Add images', tbDraw: 'Pencil', tbText: 'Text', tbRot: 'Rotate 90°',
+  tbFlip: 'Mirror horizontally', tbAdj: 'Adjustments', tbDel: 'Delete', tbFit: 'Fit everything',
+  tbLock: 'Lock for tracing', tbMore: 'More', tbUndo: 'Undo last stroke', tbUnlock: 'Hold to unlock',
+  tbPresQuit: 'Exit presentation', tbBg: 'Background color',
+  mTodo: 'Checklist', mCal: 'Calendar', mBg: 'Board background', mPres: 'Presentation',
+  mDoc: 'Import a document', mPng: 'Export as PNG', mExport: 'Export board', mImport: 'Import a backup', mHelp: 'Help',
+  segNotes: 'Notes', segBoard: 'This board', segAll: 'All', calTitle: 'Calendar', libNew: 'New board',
+  evPlaceholder: 'New event', dropHere: 'Drop your files here', clearBtn: 'Empty this board',
+  helpTag: 'reference boards',
+  hintSub: 'Add images with the + button, by dropping them here, or by pasting (Ctrl+V).<br>One finger: move · two fingers: size and rotation · padlock: freeze for tracing.<br>Your boards are saved automatically in this browser.',
+  htAdd: 'Add', htPen: 'Pencil & text', htManip: 'Manipulate', htTrace: 'Trace', htTodo: 'Checklists & notes',
+  htCal: 'Calendar', htPal: 'Palette & links', htPres: 'Presentation & export', htBackup: 'Backup', htKeys: 'Keyboard',
+  hpBoards: 'The icon at the left of the bar opens your library: create, rename, delete and switch boards. Everything is saved automatically in the browser.',
+  hpAdd: '+ button (photos), drag & drop, paste (<kbd>Ctrl/Cmd V</kbd> — images or text), and “Import a document” in the ··· menu for PDFs and text notes.',
+  hpPen: 'The pencil draws freehand (color, weight, undo in the palette); two fingers navigate while drawing. T drops a text block: double-tap to edit it, handles to resize.',
+  hpManip: 'One finger: move. Two fingers on an element: size + rotation (snaps to 0/90/180/270°). Corner handles: size. Top handle: rotation.',
+  hpTrace: 'An image\'s adjustments (sliders icon) offer black & white, contrast, opacity and <b>edge extraction</b>. The padlock freezes the whole screen and keeps it awake — <b>hold it one second</b> to unlock.',
+  hpTodo: 'Checklist in the ··· menu (<kbd>L</kbd>): tap to check, double-tap a line to edit it, Enter adds the next one. The <b>Notes</b> tab of the library gathers text and checklists from every board — tap to jump there.',
+  hpCal: '··· menu or <kbd>C</kbd>: a local agenda, no sync. Each event belongs to the current board; the <b>All</b> view shows every board\'s agenda. Events travel with the board in backups.',
+  hpPal: '“Extract palette” in an image\'s adjustments drops a swatch card of its colors (tap a color to copy its code). From the library, the chain icon drops a link card to another board — double-tap to open it.',
+  hpPres: 'Presentation mode (<kbd>P</kbd>) hides the whole interface, navigation only. “Export as PNG” flattens the board into an image.',
+  hpBackup: 'Export/Import in the ··· menu: the board becomes a file on your device; importing creates a new board.',
+  hpKeys: '<kbd>B</kbd> boards · <kbd>D</kbd> pencil · <kbd>T</kbd> text · <kbd>L</kbd> checklist · <kbd>C</kbd> calendar · <kbd>P</kbd> presentation · <kbd>R</kbd> rotate · <kbd>M</kbd> mirror · <kbd>F</kbd> fit all · <kbd>Del</kbd> delete · <kbd>Esc</kbd> close',
+};
+const tr = k => (lang === 'fr' ? I18N_FR : I18N_EN)[k];
+function applyI18n() {
+  document.documentElement.lang = lang;
+  if (lang === 'fr') return;
+  for (const el of document.querySelectorAll('[data-i18n]')) { const v = I18N_EN[el.dataset.i18n]; if (v) el.textContent = v; }
+  for (const el of document.querySelectorAll('[data-i18n-html]')) { const v = I18N_EN[el.dataset.i18nHtml]; if (v) el.innerHTML = v; }
+  for (const el of document.querySelectorAll('[data-i18n-title]')) { const v = I18N_EN[el.dataset.i18nTitle]; if (v) el.title = v; }
+  for (const el of document.querySelectorAll('[data-i18n-ph]')) { const v = I18N_EN[el.dataset.i18nPh]; if (v) el.placeholder = v; }
+  const week = $('cal-week');
+  if (week) [...week.children].forEach((s, i) => { s.textContent = I18N_EN.week[i]; });
+}
+
 const $ = id => document.getElementById(id);
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 const uid = () => (crypto.randomUUID ? crypto.randomUUID() : 'id-' + Date.now() + '-' + Math.random().toString(36).slice(2));
 const toWorld = (sx, sy) => ({ x: (sx - view.x) / view.s, y: (sy - view.y) / view.s });
-const itemH = it => it.type === 'text' ? (it.el ? it.el.offsetHeight : it.w / 2) : it.w / it.ar;
+const MEASURED = { text: 1, todo: 1, palette: 1, link: 1 }; // hauteur mesurée dans le DOM
+const itemH = it => MEASURED[it.type] ? (it.el ? it.el.offsetHeight : it.w / 2) : it.w / it.ar;
 const itemCenter = it => ({ x: it.x + it.w / 2, y: it.y + itemH(it) / 2 });
 const HALF_PI = Math.PI / 2;
 function snapAngle(a) {
@@ -143,6 +249,8 @@ function scheduleSave() {
   saveTm = setTimeout(() => { saveTm = null; saveState(); }, 400);
 }
 function flushSave() {
+  commitTextEdit();                              // une édition en cours part avec la sauvegarde
+  commitTodoEdit();
   if (saveTm) { clearTimeout(saveTm); saveTm = null; saveState(); }
 }
 addEventListener('pagehide', flushSave);
@@ -150,20 +258,23 @@ addEventListener('pagehide', flushSave);
 function serializeItem(it) {
   const base = { id: it.id, type: it.type, x: it.x, y: it.y, w: it.w, rot: it.rot };
   if (it.type === 'img') return { ...base, ar: it.ar, flip: it.flip, filters: it.filters };
-  if (it.type === 'stroke') return { ...base, ar: it.ar, natW: it.natW, natH: it.natH, color: it.color, size: it.size, pts: it.pts };
+  if (it.type === 'stroke') return { ...base, ar: it.ar, natW: it.natW, natH: it.natH, color: it.color, size: it.size, hit: it.hit, pts: it.pts };
   if (it.type === 'text') return { ...base, text: it.text, color: it.color, size: it.size, serif: !!it.serif };
+  if (it.type === 'todo') return { ...base, size: it.size, entries: it.entries.map(e => ({ t: e.t, done: !!e.done })) };
+  if (it.type === 'palette') return { ...base, colors: it.colors };
+  if (it.type === 'link') return { ...base, target: it.target, name: it.name };
   return base;
 }
 function saveState() {
   if (!ready || !library) return;
   const state = {
-    v: 3, view: { x: view.x, y: view.y, s: view.s }, locked, bg,
+    v: 4, view: { x: view.x, y: view.y, s: view.s }, locked, bg,
     items: items.map(serializeItem),
   };
   const b = library.boards.find(x => x.id === library.current);
   if (b) { b.updated = Date.now(); b.count = items.length; }
   Promise.all([dbPutMeta('state-' + library.current, state), dbPutMeta('library', library)])
-    .catch(() => toast('Sauvegarde impossible (stockage plein ?)'));
+    .catch(() => toast(tr('saveFull')));
 }
 
 /* ============================== construction des items ============================== */
@@ -201,7 +312,7 @@ function makeItemEl(it) {
     svg.setAttribute('class', 'stroke-svg');
     svg.setAttribute('viewBox', `0 0 ${it.natW} ${it.natH}`);
     const d = strokePath(it.pts);
-    for (const [cls, w] of [['hit', Math.max(it.size * 3, 14)], ['ink', it.size]]) {
+    for (const [cls, w] of [['hit', it.hit || it.size * 3], ['ink', it.size]]) {
       const p = document.createElementNS(ns, 'path');
       p.setAttribute('d', d);
       p.setAttribute('fill', 'none');
@@ -218,9 +329,60 @@ function makeItemEl(it) {
     tx.className = 'tx' + (it.serif ? ' serif' : '');
     tx.textContent = it.text;
     el.appendChild(tx);
+  } else if (it.type === 'todo') {
+    const box = document.createElement('div');
+    box.className = 'tbox';
+    el.appendChild(box);
+  } else if (it.type === 'palette') {
+    for (const c of it.colors) {
+      const cell = document.createElement('div');
+      cell.className = 'pcell';
+      const pc = document.createElement('div');
+      pc.className = 'pc';
+      pc.style.background = c;
+      const hex = document.createElement('div');
+      hex.className = 'phex';
+      hex.textContent = c;
+      cell.append(pc, hex);
+      el.appendChild(cell);
+    }
+  } else if (it.type === 'link') {
+    el.innerHTML = '<svg class="ic lic" viewBox="0 0 24 24"><rect x="4" y="4" width="12" height="12" rx="2"/><path d="M20 9v9a2 2 0 0 1-2 2H9"/></svg>'
+      + '<span class="lname"></span>'
+      + '<svg class="ic larrow" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg>';
   }
   addHandles(el);
+  if (it.type === 'todo') updateTodoDOM(it, el);
+  if (it.type === 'link') updateLinkDOM(it, el);
   return el;
+}
+
+function updateTodoDOM(it, el) {
+  const box = (el || it.el).querySelector('.tbox');
+  box.innerHTML = '';
+  it.entries.forEach((entry, i) => {
+    const row = document.createElement('div');
+    row.className = 'trow';
+    row.dataset.i = i;
+    const check = document.createElement('button');
+    check.className = 'todo-check' + (entry.done ? ' done' : '');
+    const label = document.createElement('span');
+    label.className = 'tlabel' + (entry.done ? ' done' : '');
+    label.textContent = entry.t;
+    row.append(check, label);
+    box.appendChild(row);
+  });
+  const add = document.createElement('div');
+  add.className = 'trow tadd';
+  add.innerHTML = '<button class="todo-plus"></button><span class="tlabel">' + tr('todoAdd') + '</span>';
+  box.appendChild(add);
+}
+function updateLinkDOM(it, el) {
+  const b = library && boardMeta(it.target);
+  if (b) it.name = b.name;
+  const root = el || it.el;
+  root.querySelector('.lname').textContent = it.name || 'Board';
+  root.classList.toggle('dead', !b);
 }
 function renderItem(it) {
   it.el.style.transform = `translate(${it.x}px, ${it.y}px) rotate(${it.rot}rad)`;
@@ -233,6 +395,8 @@ function renderItem(it) {
     tx.style.fontSize = it.size + 'px';
     tx.style.color = it.color;
     tx.classList.toggle('serif', !!it.serif);
+  } else if (it.type === 'todo' || it.type === 'palette' || it.type === 'link') {
+    it.el.style.fontSize = (it.size || it.w / 14) + 'px';
   }
 }
 function addItem(it) {
@@ -265,6 +429,7 @@ function select(it) {
 }
 function removeItem(it, instant) {
   if (editingText === it) commitTextEdit();
+  if (editingTodo && editingTodo.it === it) commitTodoEdit();
   if (selected === it) select(null);
   const el = it.el, url = it.url;
   if (instant) {
@@ -324,10 +489,42 @@ async function addImageBlob(blob, opts) {
     rot: 0, flip: false, filters: {}, blob: norm, url: info.url,
   };
   addItem(it);
-  dbPutImage(id, norm).catch(() => toast('Image non sauvegardée (stockage plein ?)'));
+  dbPutImage(id, norm).catch(() => toast(tr('imgFull')));
   return it;
 }
 
+function addTodoItem() {
+  const at = toWorld(innerWidth / 2, innerHeight / 2);
+  const w = 300 / view.s;
+  const it = {
+    id: uid(), type: 'todo',
+    x: at.x - w / 2, y: at.y - w / 4, w,
+    rot: 0, size: 15 / view.s,
+    entries: [],
+  };
+  addItem(it);
+  return it;
+}
+function addPaletteItem(colors, at, w) {
+  const it = {
+    id: uid(), type: 'palette',
+    x: at.x, y: at.y, w,
+    rot: 0, colors,
+  };
+  addItem(it);
+  return it;
+}
+function addLinkItem(board) {
+  const at = toWorld(innerWidth / 2, innerHeight / 2);
+  const w = 230 / view.s;
+  const it = {
+    id: uid(), type: 'link',
+    x: at.x - w / 2, y: at.y, w,
+    rot: 0, target: board.id, name: board.name,
+  };
+  addItem(it);
+  return it;
+}
 function addTextItem(text, opts) {
   const at = (opts && opts.at) || toWorld(innerWidth / 2, innerHeight / 2);
   const size = (opts && opts.size) || 22 / view.s;
@@ -360,16 +557,17 @@ async function importFiles(files, atScreen) {
         await importPdf(file, at);
         n++;
       } else if (file.type.startsWith('text/') || /\.(txt|md)$/i.test(file.name)) {
+        if (file.size > 2_000_000) { toast(tr('cantImport') + file.name); continue; }
         const text = (await file.text()).slice(0, 20000);
         if (!text.trim()) continue;
         const it = addTextItem(text.trim(), { at: at || undefined, size: 15 / view.s, w: 420 / view.s });
         select(it);
         n++;
       } else {
-        toast('Format non pris en charge : ' + file.name);
+        toast(tr('badFormat') + file.name);
       }
     } catch (e) {
-      toast('Impossible d\'importer ' + file.name);
+      toast(tr('cantImport') + file.name);
     }
   }
   if (n) scheduleSave();
@@ -396,31 +594,36 @@ function loadPdfJs() {
   return pdfjsReady;
 }
 async function importPdf(file, at) {
-  toast('Lecture du PDF…');
-  try { await loadPdfJs(); } catch (e) { toast('Import PDF impossible (connexion nécessaire la première fois)', 3500); return; }
+  toast(tr('pdfReading'));
+  try { await loadPdfJs(); } catch (e) { toast(tr('pdfOffline'), 3500); return; }
   const doc = await window.pdfjsLib.getDocument({ data: await file.arrayBuffer() }).promise;
   const total = doc.numPages, n = Math.min(total, 20);
   const base = at || toWorld(innerWidth / 2, innerHeight / 2);
   const w = (0.4 * Math.min(innerWidth, innerHeight)) / view.s;
+  let ok = 0;
   for (let p = 1; p <= n; p++) {
-    const page = await doc.getPage(p);
-    let vpt = page.getViewport({ scale: 1 });
-    const scale = Math.min(2.5, 1600 / vpt.width);
-    vpt = page.getViewport({ scale });
-    const canvas = document.createElement('canvas');
-    canvas.width = Math.round(vpt.width);
-    canvas.height = Math.round(vpt.height);
-    const ctx = canvas.getContext('2d');
-    ctx.fillStyle = '#fff';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    await page.render({ canvasContext: ctx, viewport: vpt }).promise;
-    const blob = await new Promise(r => canvas.toBlob(r, 'image/jpeg', 0.92));
-    if (!blob) continue;
-    const col = (p - 1) % 4, row = Math.floor((p - 1) / 4);
-    const it = await addImageBlob(blob, { at: { x: base.x + col * w * 1.06, y: base.y + row * w * 1.35 }, w });
-    select(it);
+    try {
+      const page = await doc.getPage(p);
+      let vpt = page.getViewport({ scale: 1 });
+      const scale = Math.min(2.5, 1600 / vpt.width, 2600 / vpt.height); // borne aussi la hauteur (limite canvas Safari)
+      vpt = page.getViewport({ scale });
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.round(vpt.width);
+      canvas.height = Math.round(vpt.height);
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      await page.render({ canvasContext: ctx, viewport: vpt }).promise;
+      const blob = await new Promise(r => canvas.toBlob(r, 'image/jpeg', 0.92));
+      if (!blob) continue;
+      const col = (p - 1) % 4, row = Math.floor((p - 1) / 4);
+      const it = await addImageBlob(blob, { at: { x: base.x + col * w * 1.06, y: base.y + row * w * 1.35 }, w });
+      select(it);
+      ok++;
+      scheduleSave(); // les pages déjà importées sont sauvées même si la suite échoue
+    } catch (e) { /* page illisible : on passe à la suivante */ }
   }
-  toast(total > n ? `${n} premières pages importées (sur ${total})` : `PDF importé (${n} page${n > 1 ? 's' : ''})`);
+  toast(total > n ? tr('pdfPartial')(ok, total) : tr('pdfDone')(ok));
   scheduleSave();
 }
 
@@ -434,10 +637,11 @@ function applyFilters(it) {
   if (f.edge) {
     if (it._edgeUrl) { img.src = it._edgeUrl; }
     else {
-      generateEdges(it).then(url => {
+      if (!it._edgePromise) it._edgePromise = generateEdges(it); // une seule passe Sobel par image
+      it._edgePromise.then(url => {
         it._edgeUrl = url;
         if (it.filters.edge && it.el) it.el.firstChild.src = url;
-      }).catch(() => { it.filters.edge = 0; toast('Extraction de contours impossible sur cette image'); });
+      }).catch(() => { it._edgePromise = null; it.filters.edge = 0; toast(tr('edgeFail')); });
     }
   } else if (img.src !== it.url) {
     img.src = it.url;
@@ -494,7 +698,7 @@ function buildAdjust() {
     const f = it.filters;
     const toggles = document.createElement('div');
     toggles.className = 'atoggles';
-    for (const [key, label] of [['bw', 'Noir & blanc'], ['edge', 'Contours']]) {
+    for (const [key, label] of [['bw', tr('bwLabel')], ['edge', tr('edgeLabel')]]) {
       const b = document.createElement('button');
       b.className = 'tgl' + (f[key] ? ' on' : '');
       b.textContent = label;
@@ -508,8 +712,8 @@ function buildAdjust() {
     }
     box.appendChild(toggles);
     for (const [key, label, min, max, step, def] of [
-      ['contrast', 'Contraste', 0.5, 2.5, 0.05, 1],
-      ['opacity', 'Opacité', 0.15, 1, 0.05, 1],
+      ['contrast', tr('contrastLabel'), 0.5, 2.5, 0.05, 1],
+      ['opacity', tr('opacityLabel'), 0.15, 1, 0.05, 1],
     ]) {
       const row = document.createElement('div');
       row.className = 'arow';
@@ -522,9 +726,14 @@ function buildAdjust() {
       row.append(lab, r);
       box.appendChild(row);
     }
+    const pal = document.createElement('button');
+    pal.className = 'tgl';
+    pal.textContent = tr('extractLabel');
+    pal.addEventListener('click', () => { closePopovers(); extractPalette(it); });
+    box.appendChild(pal);
     const reset = document.createElement('button');
     reset.className = 'areset';
-    reset.textContent = 'Réinitialiser';
+    reset.textContent = tr('resetLabel');
     reset.addEventListener('click', () => { it.filters = {}; applyFilters(it); buildAdjust(); scheduleSave(); });
     box.appendChild(reset);
   } else if (it.type === 'text') {
@@ -566,34 +775,326 @@ function buildAdjust() {
   }
 }
 
+/* ============================== palette de couleurs ============================== */
+async function extractPalette(it) {
+  toast(tr('palWorking'));
+  try {
+    const info = await loadBlobAsImage(it.blob);
+    const S = 64;
+    const canvas = document.createElement('canvas');
+    canvas.width = S; canvas.height = S;
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    ctx.drawImage(info.img, 0, 0, S, S);
+    URL.revokeObjectURL(info.url);
+    const d = ctx.getImageData(0, 0, S, S).data;
+    const buckets = new Map(); // clé quantifiée -> {n, r, g, b}
+    for (let i = 0; i < d.length; i += 4) {
+      if (d[i + 3] < 200) continue;
+      const key = (d[i] >> 5) << 6 | (d[i + 1] >> 5) << 3 | (d[i + 2] >> 5);
+      let b = buckets.get(key);
+      if (!b) { b = { n: 0, r: 0, g: 0, b: 0 }; buckets.set(key, b); }
+      b.n++; b.r += d[i]; b.g += d[i + 1]; b.b += d[i + 2];
+    }
+    const sorted = [...buckets.values()].sort((a, b) => b.n - a.n)
+      .map(b => [Math.round(b.r / b.n), Math.round(b.g / b.n), Math.round(b.b / b.n)]);
+    const picked = [];
+    for (const c of sorted) {
+      if (picked.every(p => Math.hypot(p[0] - c[0], p[1] - c[1], p[2] - c[2]) > 55)) picked.push(c);
+      if (picked.length === 5) break;
+    }
+    if (!picked.length) { toast(tr('palNone')); return; }
+    const hex = picked.map(([r, g, b]) => '#' + [r, g, b].map(v => v.toString(16).padStart(2, '0')).join(''));
+    const pal = addPaletteItem(hex, { x: it.x, y: it.y + itemH(it) + 18 / view.s }, it.w);
+    pal.rot = it.rot;
+    renderItem(pal);
+    select(pal);
+    scheduleSave();
+    toast(tr('palDone'));
+  } catch (e) {
+    toast(tr('palFail'));
+  }
+}
+
+/* ============================== export PNG à plat ============================== */
+function contentBBox() {
+  let x1 = Infinity, y1 = Infinity, x2 = -Infinity, y2 = -Infinity;
+  for (const it of items) {
+    const h = itemH(it), c = itemCenter(it);
+    const cos = Math.cos(it.rot), sin = Math.sin(it.rot);
+    for (const [dx, dy] of [[-it.w/2,-h/2],[it.w/2,-h/2],[it.w/2,h/2],[-it.w/2,h/2]]) {
+      const X = c.x + dx * cos - dy * sin, Y = c.y + dx * sin + dy * cos;
+      x1 = Math.min(x1, X); y1 = Math.min(y1, Y);
+      x2 = Math.max(x2, X); y2 = Math.max(y2, Y);
+    }
+  }
+  return { x1, y1, x2, y2 };
+}
+function loadUrlAsImage(url) {
+  return new Promise((res, rej) => {
+    const img = new Image();
+    img.onload = () => res(img);
+    img.onerror = () => rej(new Error('img'));
+    img.src = url;
+  });
+}
+function wrapLines(ctx, text, maxW) {
+  const out = [];
+  for (const para of String(text).split('\n')) {
+    const words = para.split(' ');
+    let line = '';
+    for (const word of words) {
+      const test = line ? line + ' ' + word : word;
+      if (ctx.measureText(test).width <= maxW || !line) line = test;
+      else { out.push(line); line = word; }
+    }
+    out.push(line);
+  }
+  return out;
+}
+async function exportPng() {
+  if (!items.length) { toast(tr('boardEmpty')); return; }
+  toast(tr('pngWorking'));
+  try {
+    const bb = contentBBox();
+    const pad = 60;
+    const bw = bb.x2 - bb.x1 + pad * 2, bh = bb.y2 - bb.y1 + pad * 2;
+    const scale = Math.min(2, 4096 / Math.max(bw, bh));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.round(bw * scale);
+    canvas.height = Math.round(bh * scale);
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = bg;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    const paper = '#f5f2ea', ink = '#161616';
+    const sans = '-apple-system, "Helvetica Neue", Roboto, sans-serif';
+    const serif = '"Bodoni 72", Didot, Georgia, serif';
+    for (const it of items) {
+      const h = itemH(it), c = itemCenter(it);
+      ctx.save();
+      ctx.translate((c.x - bb.x1 + pad) * scale, (c.y - bb.y1 + pad) * scale);
+      ctx.scale(scale, scale);
+      ctx.rotate(it.rot);
+      try {
+        if (it.type === 'img') {
+          const f = it.filters || {};
+          let src = it.url;
+          if (f.edge) {
+            if (!it._edgeUrl) it._edgeUrl = await generateEdges(it);
+            src = it._edgeUrl;
+          }
+          let img = await loadUrlAsImage(src);
+          if (!f.edge && (f.bw || (f.contrast && f.contrast !== 1))) {
+            const t = document.createElement('canvas');
+            const tw = Math.min(img.naturalWidth, 2048);
+            const th = Math.round(tw * img.naturalHeight / img.naturalWidth);
+            t.width = tw; t.height = th;
+            const tc = t.getContext('2d', { willReadFrequently: true });
+            tc.drawImage(img, 0, 0, tw, th);
+            const id = tc.getImageData(0, 0, tw, th);
+            const k = f.contrast || 1;
+            for (let i = 0; i < id.data.length; i += 4) {
+              let r = id.data[i], g = id.data[i + 1], b = id.data[i + 2];
+              if (f.bw) r = g = b = 0.299 * r + 0.587 * g + 0.114 * b;
+              id.data[i] = (r - 128) * k + 128;
+              id.data[i + 1] = (g - 128) * k + 128;
+              id.data[i + 2] = (b - 128) * k + 128;
+            }
+            tc.putImageData(id, 0, 0);
+            img = t;
+          }
+          ctx.globalAlpha = f.opacity != null ? f.opacity : 1;
+          if (it.flip) ctx.scale(-1, 1);
+          ctx.drawImage(img, -it.w / 2, -h / 2, it.w, h);
+        } else if (it.type === 'stroke') {
+          const k = it.w / it.natW;
+          ctx.translate(-it.w / 2, -h / 2);
+          ctx.scale(k, k);
+          ctx.strokeStyle = it.color;
+          ctx.lineWidth = it.size;
+          ctx.lineCap = 'round';
+          ctx.lineJoin = 'round';
+          ctx.stroke(new Path2D(strokePath(it.pts)));
+        } else if (it.type === 'text') {
+          ctx.translate(-it.w / 2, -h / 2);
+          ctx.font = `${it.serif ? 'italic ' : ''}${it.size}px ${it.serif ? serif : sans}`;
+          ctx.fillStyle = it.color;
+          ctx.textBaseline = 'top';
+          const padX = it.size * 0.3, lh = it.size * 1.4;
+          wrapLines(ctx, it.text, it.w - padX * 2).forEach((line, i) => {
+            ctx.fillText(line, padX, it.size * 0.18 + i * lh);
+          });
+        } else if (it.type === 'todo') {
+          ctx.translate(-it.w / 2, -h / 2);
+          const s = it.size;
+          rounded(ctx, 0, 0, it.w, h, s * 0.6);
+          ctx.fillStyle = paper;
+          ctx.fill();
+          ctx.font = `${s}px ${sans}`;
+          ctx.textBaseline = 'top';
+          let y = s * 0.55 + s * 0.22;
+          for (const en of it.entries) {
+            const bx = s * 0.7, box = s * 1.05;
+            ctx.strokeStyle = ink;
+            ctx.lineWidth = s * 0.09;
+            rounded(ctx, bx, y + s * 0.14, box, box, s * 0.25);
+            if (en.done) { ctx.fillStyle = ink; ctx.fill(); } else ctx.stroke();
+            ctx.fillStyle = en.done ? 'rgba(22,22,22,.55)' : ink;
+            const tx = bx + box + s * 0.55;
+            const lines = wrapLines(ctx, en.t, it.w - tx - s * 0.7);
+            lines.forEach((line, i) => {
+              ctx.fillText(line, tx, y + i * s * 1.45);
+              if (en.done) {
+                const lw = ctx.measureText(line).width;
+                ctx.fillRect(tx, y + i * s * 1.45 + s * 0.45, lw, s * 0.07);
+              }
+            });
+            y += lines.length * s * 1.45 + s * 0.44;
+          }
+        } else if (it.type === 'palette') {
+          ctx.translate(-it.w / 2, -h / 2);
+          const n = it.colors.length;
+          const cw = it.w / n, chh = cw * 1.15;
+          it.colors.forEach((col, i) => {
+            ctx.fillStyle = col;
+            ctx.fillRect(i * cw, 0, cw + 0.5, chh);
+            ctx.fillStyle = paper;
+            ctx.fillRect(i * cw, chh, cw + 0.5, h - chh);
+            ctx.fillStyle = ink;
+            ctx.font = `${cw * 0.13}px ui-monospace, Menlo, monospace`;
+            ctx.textBaseline = 'middle';
+            const tw = ctx.measureText(col).width;
+            ctx.fillText(col, i * cw + (cw - tw) / 2, chh + (h - chh) / 2);
+          });
+        } else if (it.type === 'link') {
+          ctx.translate(-it.w / 2, -h / 2);
+          const s = it.w / 14;
+          rounded(ctx, 0, 0, it.w, h, s * 0.6);
+          ctx.fillStyle = paper;
+          ctx.fill();
+          ctx.fillStyle = ink;
+          ctx.font = `italic ${s * 1.15}px ${serif}`;
+          ctx.textBaseline = 'middle';
+          ctx.fillText(it.name || 'Board', s * 0.9, h / 2, it.w - s * 2);
+        }
+      } catch (_) { /* élément non rendu : on continue */ }
+      ctx.restore();
+    }
+    const blob = await new Promise(r => canvas.toBlob(r, 'image/png'));
+    if (!blob) throw new Error('toBlob');
+    const b = boardMeta(library.current);
+    const d = new Date();
+    const p2 = n => String(n).padStart(2, '0');
+    const slug = ((b && b.name) || 'board').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 30) || 'board';
+    await deliverFile(blob, `refy-${slug}-${d.getFullYear()}${p2(d.getMonth() + 1)}${p2(d.getDate())}.png`);
+    toast(tr('pngDone'));
+  } catch (e) {
+    toast(tr('pngFail'));
+  }
+}
+function rounded(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+
 /* ============================== édition de texte ============================== */
+function setEditable(el) {
+  try { el.contentEditable = 'plaintext-only'; } catch (_) {}
+  if (el.contentEditable !== 'plaintext-only') el.contentEditable = 'true';
+}
 function editText(it) {
   if (locked || it.type !== 'text') return;
   commitTextEdit();
+  commitTodoEdit();
   editingText = it;
   const tx = it.el.firstChild;
   it.el.classList.add('editing');
-  tx.contentEditable = 'plaintext-only';
-  if (tx.contentEditable !== 'plaintext-only') tx.contentEditable = 'true';
+  setEditable(tx);
   tx.focus();
   const range = document.createRange();
   range.selectNodeContents(tx);
   const sel = getSelection();
   sel.removeAllRanges();
   sel.addRange(range);
-  tx.addEventListener('blur', commitTextEdit, { once: true });
+  tx.addEventListener('blur', () => { if (editingText === it) commitTextEdit(); }, { once: true });
 }
 function commitTextEdit() {
   if (!editingText) return;
   const it = editingText;
   editingText = null;
   const tx = it.el.firstChild;
-  tx.contentEditable = 'false';
+  tx.removeAttribute('contenteditable');
   it.el.classList.remove('editing');
   it.text = tx.innerText.replace(/ /g, ' ').trimEnd();
   tx.textContent = it.text;
   if (!it.text.trim()) { removeItem(it, true); return; }
   scheduleSave();
+}
+
+/* ============================== checklist : édition de ligne ============================== */
+function editTodoRow(it, idx) {
+  if (locked) return;
+  commitTextEdit();
+  commitTodoEdit();
+  const row = it.el.querySelector(`.trow[data-i="${idx}"]`);
+  if (!row) return;
+  const span = row.querySelector('.tlabel');
+  editingTodo = { it, idx, span };
+  setEditable(span);
+  span.focus();
+  const range = document.createRange();
+  range.selectNodeContents(span);
+  const sel = getSelection();
+  sel.removeAllRanges();
+  sel.addRange(range);
+  span.addEventListener('blur', () => { if (editingTodo && editingTodo.span === span) commitTodoEdit(); }, { once: true });
+  span.addEventListener('keydown', todoRowKeydown);
+}
+function todoRowKeydown(e) {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    if (!editingTodo) return;
+    const { it, idx } = editingTodo;
+    commitTodoEdit();
+    if (it.entries[idx] && it.entries[idx].t.trim()) {
+      it.entries.splice(idx + 1, 0, { t: '', done: false });
+      updateTodoDOM(it);
+      renderItem(it);
+      editTodoRow(it, idx + 1);
+    }
+  } else if (e.key === 'Escape') {
+    e.target.blur();
+  }
+}
+function commitTodoEdit() {
+  if (!editingTodo) return;
+  const { it, idx, span } = editingTodo;
+  editingTodo = null;
+  span.removeEventListener('keydown', todoRowKeydown);
+  span.removeAttribute('contenteditable');
+  const t = span.innerText.replace(/\n/g, ' ').trim();
+  if (it.entries[idx]) {
+    if (t) it.entries[idx].t = t;
+    else it.entries.splice(idx, 1);
+  }
+  updateTodoDOM(it);
+  renderItem(it);
+  scheduleSave();
+}
+function toggleTodo(it, idx) {
+  if (!it.entries[idx]) return;
+  it.entries[idx].done = !it.entries[idx].done;
+  updateTodoDOM(it);
+  scheduleSave();
+}
+function openLinkTarget(it) {
+  const b = boardMeta(it.target);
+  if (!b) { toast(tr('linkDead')); return; }
+  switchBoard(it.target);
 }
 
 /* ============================== gestes ============================== */
@@ -642,7 +1143,7 @@ function drawBBox(pts, pad) {
 function updateDrawPreview(g) {
   const size = pen.size / g.viewS;
   const bb = drawBBox(g.pts, size);
-  const local = g.pts.map(([x, y]) => [+(x - bb.x).toFixed(1), +(y - bb.y).toFixed(1)]);
+  const local = g.pts.map(([x, y]) => [+(x - bb.x).toFixed(3), +(y - bb.y).toFixed(3)]);
   g.el.style.transform = `translate(${bb.x}px, ${bb.y}px)`;
   g.el.style.width = bb.w + 'px';
   const svg = g.el.firstChild;
@@ -668,6 +1169,7 @@ function finishDraw(g) {
     natW: +g.bb.w.toFixed(1), natH: +g.bb.h.toFixed(1),
     ar: g.bb.w / g.bb.h,
     rot: 0, color: pen.color, size: +size.toFixed(2),
+    hit: +Math.max(size * 3, 12 / g.viewS).toFixed(2), // zone de tap figée au zoom du dessin
     pts: g.local,
   };
   g.el.remove();
@@ -686,6 +1188,10 @@ vp.addEventListener('pointerdown', e => {
   if (editingText) {
     if (e.target.closest('.item') === editingText.el) return; // laisse l'édition native
     commitTextEdit();
+  }
+  if (editingTodo) {
+    if (e.target.closest('.tlabel') === editingTodo.span) return;
+    commitTodoEdit();
   }
   e.preventDefault();
   cancelViewAnim();
@@ -731,6 +1237,16 @@ vp.addEventListener('pointerdown', e => {
     return;
   }
 
+  /* --- mode présentation : navigation seule --- */
+  if (presenting) {
+    if (pointers.size === 1) {
+      gesture = { type: 'pan', pid: e.pointerId, start: { px: e.clientX, py: e.clientY, x: view.x, y: view.y } };
+    } else if (pointers.size === 2) {
+      startPinch();
+    }
+    return;
+  }
+
   /* --- mode sélection --- */
   if (pointers.size === 1) {
     const handleEl = e.target.closest('.handle');
@@ -750,18 +1266,39 @@ vp.addEventListener('pointerdown', e => {
     } else if (itemEl) {
       const it = items.find(i => i.id === itemEl.dataset.id);
       if (!it) return;
-      // double-tap sur un texte : édition
+      // double-tap : édition texte / ligne de checklist / ouverture de lien
       const now = performance.now();
-      if (it.type === 'text' && it._lastTap && now - it._lastTap < 350) {
+      if (it._lastTap && now - it._lastTap < 350) {
         it._lastTap = 0;
-        select(it);
-        editText(it);
-        return;
+        if (it.type === 'text') { select(it); editText(it); return; }
+        if (it.type === 'link') { openLinkTarget(it); return; }
+        if (it.type === 'todo') {
+          const row = e.target.closest('.trow:not(.tadd)');
+          if (row) { select(it); editTodoRow(it, +row.dataset.i); return; }
+        }
       }
       it._lastTap = now;
       select(it);
       bringToFront(it);
-      gesture = { type: 'move', it, pid: e.pointerId, moved: false, start: { px: e.clientX, py: e.clientY, x: it.x, y: it.y } };
+      // actions au relâchement (tap sans déplacement) : cocher, ajouter une ligne, copier une couleur
+      let tap = null;
+      if (it.type === 'todo') {
+        const check = e.target.closest('.todo-check');
+        const add = e.target.closest('.trow.tadd');
+        if (check) { const i = +check.closest('.trow').dataset.i; tap = () => toggleTodo(it, i); }
+        else if (add) tap = () => { it.entries.push({ t: '', done: false }); updateTodoDOM(it); renderItem(it); editTodoRow(it, it.entries.length - 1); scheduleSave(); };
+      } else if (it.type === 'palette') {
+        const cell = e.target.closest('.pcell');
+        if (cell) {
+          const hex = cell.querySelector('.phex').textContent;
+          tap = () => {
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+              navigator.clipboard.writeText(hex).then(() => toast(tr('copied')(hex))).catch(() => toast(hex));
+            } else toast(hex);
+          };
+        }
+      }
+      gesture = { type: 'move', it, pid: e.pointerId, moved: false, tap, start: { px: e.clientX, py: e.clientY, x: it.x, y: it.y } };
     } else {
       select(null);
       gesture = { type: 'pan', pid: e.pointerId, start: { px: e.clientX, py: e.clientY, x: view.x, y: view.y } };
@@ -815,7 +1352,7 @@ vp.addEventListener('pointermove', e => {
     const ncy = cw.y + vx * sin + vy * cos;
     it.w = nw;
     it.rot = rot;
-    if (it.type === 'text' && g.start.size) it.size = g.start.size * f;
+    if ((it.type === 'text' || it.type === 'todo') && g.start.size) it.size = g.start.size * f;
     renderItem(it);
     it.x = ncx - nw / 2;
     it.y = ncy - itemH(it) / 2;
@@ -836,7 +1373,7 @@ vp.addEventListener('pointermove', e => {
     const d = Math.hypot(pw.x - g.start.ctr.x, pw.y - g.start.ctr.y);
     const f = clamp(g.start.w * d / g.start.d, MIN_W, MAX_W) / g.start.w;
     it.w = g.start.w * f;
-    if (it.type === 'text' && g.start.size) it.size = g.start.size * f;
+    if ((it.type === 'text' || it.type === 'todo') && g.start.size) it.size = g.start.size * f;
     renderItem(it);
     it.x = g.start.ctr.x - it.w / 2;
     it.y = g.start.ctr.y - itemH(it) / 2;
@@ -867,7 +1404,9 @@ function endPointer(e) {
   } else if (pointers.size === 1) {
     rebaseSingle([...pointers.keys()][0]);
   } else if (pointers.size === 0) {
+    const g = gesture;
     gesture = null;
+    if (g.type === 'move' && !g.moved && g.tap && e.type === 'pointerup') g.tap();
     scheduleSave();
   }
 }
@@ -896,6 +1435,7 @@ document.addEventListener('dblclick', e => e.preventDefault());
 
 /* ============================== vue ============================== */
 function fitView() {
+  if (gesture && gesture.type === 'draw') return; // pas de saut de vue en plein trait
   if (!items.length) { animateViewTo(0, 0, 1); return; }
   let x1 = Infinity, y1 = Infinity, x2 = -Infinity, y2 = -Infinity;
   for (const it of items) {
@@ -937,7 +1477,6 @@ function setTool(t) {
     syncPenbar();
     openPopover('penbar');
   } else {
-    $('penbar').classList.remove('open');
   }
 }
 function syncPenbar() {
@@ -971,7 +1510,7 @@ $('btn-text').addEventListener('click', () => {
   const it = addTextItem('');
   select(it);
   scheduleSave();
-  requestAnimationFrame(() => editText(it));
+  editText(it);
 });
 
 /* ============================== popovers ============================== */
@@ -984,7 +1523,7 @@ function closePopovers(except) {
 }
 document.addEventListener('pointerdown', e => {
   if (e.target.closest('.popover') || e.target.closest('#toolbar')) return;
-  if (tool === 'draw') { $('penbar').classList.remove('open'); closePopovers('penbar'); return; }
+  if (tool === 'draw') { closePopovers('penbar'); return; }  // la palette du crayon reste ouverte en mode dessin
   closePopovers();
 }, true);
 
@@ -1004,6 +1543,18 @@ $('more').addEventListener('click', e => {
   else if (act === 'doc') $('file-doc').click();
   else if (act === 'export') exportBoard();
   else if (act === 'import') $('file-board').click();
+  else if (act === 'png') exportPng();
+  else if (act === 'present') setPresenting(true);
+  else if (act === 'todo') {
+    setTool(null);
+    const it = addTodoItem();
+    select(it);
+    scheduleSave();
+    it.entries.push({ t: '', done: false });
+    updateTodoDOM(it);
+    renderItem(it);
+    editTodoRow(it, 0);
+  }
   else if (act === 'help') $('help').classList.remove('hidden');
 });
 $('btn-adj').addEventListener('click', () => {
@@ -1026,18 +1577,30 @@ document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'hidden') flushSave();
 });
 function setLocked(v, silent) {
-  if (v) { commitTextEdit(); setTool(null); }
+  if (v) { commitTextEdit(); commitTodoEdit(); setTool(null); }
   locked = v;
   document.body.classList.toggle('locked', v);
   select(null);
+  if (gesture && gesture.type === 'draw') cancelDraw(gesture); // pas de trait fantôme
   gesture = null;
   closePopovers();
   document.body.classList.remove('lib-open', 'cal-open');
-  if (v) { acquireWakeLock(); if (!silent) toast('Verrouillé — maintiens le cadenas pour déverrouiller'); }
-  else { releaseWakeLock(); if (!silent) toast('Déverrouillé'); }
+  if (v) { acquireWakeLock(); if (!silent) toast(tr('lockToast')); }
+  else { releaseWakeLock(); if (!silent) toast(tr('unlockToast')); }
   scheduleSave();
 }
 $('btn-lock').addEventListener('click', () => setLocked(true));
+
+/* mode présentation */
+function setPresenting(v) {
+  if (v) { commitTextEdit(); commitTodoEdit(); setTool(null); select(null); closePopovers(); document.body.classList.remove('lib-open', 'cal-open'); }
+  presenting = v;
+  if (gesture && gesture.type === 'draw') cancelDraw(gesture);
+  gesture = null;
+  document.body.classList.toggle('presenting', v);
+  if (v) toast(tr('presToast'));
+}
+$('presbtn').addEventListener('click', () => setPresenting(false));
 
 const lockbtn = $('lockbtn');
 let unlockTm = null;
@@ -1062,15 +1625,21 @@ lockbtn.addEventListener('pointerleave', cancelUnlockHold);
 function boardMeta(id) { return library.boards.find(b => b.id === id); }
 function fmtWhen(t) {
   const d = new Date(t);
-  return d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' }) + ' · ' +
-         d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+  return d.toLocaleDateString(LOCALE, { day: 'numeric', month: 'short' }) + ' · ' +
+         d.toLocaleTimeString(LOCALE, { hour: '2-digit', minute: '2-digit' });
 }
 const ICONS = {
   pencil: '<svg class="ic" viewBox="0 0 24 24"><path d="M4 20l1.2-4.2L16.5 4.5a2.12 2.12 0 0 1 3 3L8.2 18.8 4 20z"/><path d="M14.5 6.5l3 3"/></svg>',
   trash: '<svg class="ic" viewBox="0 0 24 24"><path d="M5 7h14M10 4h4M8 7l.8 13h6.4L16 7"/></svg>',
+  link: '<svg class="ic" viewBox="0 0 24 24"><path d="M10.5 13.5a4 4 0 0 0 5.6 0l3-3a4 4 0 0 0-5.6-5.6l-1.2 1.2"/><path d="M13.5 10.5a4 4 0 0 0-5.6 0l-3 3a4 4 0 0 0 5.6 5.6l1.2-1.2"/></svg>',
+  text: '<svg class="ic" viewBox="0 0 24 24"><path d="M5 6V4h14v2M12 4v16M9.5 20h5"/></svg>',
+  todo: '<svg class="ic" viewBox="0 0 24 24"><rect x="4" y="5" width="5" height="5" rx="1.2"/><path d="M5.2 7.5l1.2 1.2 2-2.4" stroke-width="1.4"/><path d="M12.5 7.5H20M12.5 16.5H20"/><rect x="4" y="14" width="5" height="5" rx="1.2"/></svg>',
 };
 function renderLibrary() {
   if (!library) return;
+  $('lib-new').style.display = libTab === 'boards' ? '' : 'none';
+  for (const btn of $('lib-seg').children) btn.classList.toggle('on', btn.dataset.tab === libTab);
+  if (libTab === 'notes') { renderNotes(); return; }
   const list = $('lib-list');
   list.innerHTML = '';
   for (const b of library.boards) {
@@ -1084,31 +1653,129 @@ function renderLibrary() {
     const meta = document.createElement('div');
     meta.className = 'bmeta';
     const n = b.count || 0;
-    meta.textContent = `${n} élément${n > 1 ? 's' : ''} · ${fmtWhen(b.updated)}`;
+    meta.textContent = tr('countLabel')(n) + ' · ' + fmtWhen(b.updated);
     main.append(name, meta);
     main.addEventListener('click', () => { switchBoard(b.id); });
     const ren = document.createElement('button');
     ren.className = 'bact';
-    ren.title = 'Renommer';
+    ren.title = tr('renameTitle');
     ren.innerHTML = ICONS.pencil;
     ren.addEventListener('click', () => {
-      const v = prompt('Nom du board', b.name);
-      if (v && v.trim()) { b.name = v.trim().slice(0, 48); dbPutMeta('library', library).catch(() => {}); renderLibrary(); }
+      const v = prompt(tr('namePrompt'), b.name);
+      if (v && v.trim()) {
+        b.name = v.trim().slice(0, 48);
+        dbPutMeta('library', library).catch(() => {});
+        renderLibrary();
+        for (const it of items) if (it.type === 'link') updateLinkDOM(it);
+      }
     });
     const del = document.createElement('button');
     del.className = 'bact';
-    del.title = 'Supprimer';
+    del.title = tr('deleteTitle');
     del.innerHTML = ICONS.trash;
     del.addEventListener('click', () => deleteBoard(b.id));
-    row.append(main, ren, del);
+    if (b.id !== library.current) {
+      const lnk = document.createElement('button');
+      lnk.className = 'bact';
+      lnk.title = tr('linkTitle');
+      lnk.innerHTML = ICONS.link;
+      lnk.addEventListener('click', () => {
+        const it = addLinkItem(b);
+        select(it);
+        scheduleSave();
+        closeLibrary();
+        toast(tr('linkPosed')(b.name));
+      });
+      row.append(main, lnk, ren, del);
+    } else {
+      row.append(main, ren, del);
+    }
     list.appendChild(row);
   }
 }
+
+/* master des notes : textes + checklists de tous les boards */
+async function renderNotes() {
+  const list = $('lib-list');
+  list.innerHTML = '<div class="lib-empty">' + tr('loading') + '</div>';
+  const groups = [];
+  for (const b of library.boards) {
+    let entries;
+    if (b.id === library.current) {
+      entries = items.map(serializeItem);
+    } else {
+      let st = null;
+      try { st = await dbGetMeta('state-' + b.id); } catch (_) {}
+      entries = (st && st.items) || [];
+    }
+    const notes = entries.filter(e => e.type === 'text' || e.type === 'todo');
+    if (notes.length) groups.push({ board: b, notes });
+  }
+  if (libTab !== 'notes') return; // l'utilisateur a changé d'onglet pendant la lecture
+  list.innerHTML = '';
+  if (!groups.length) {
+    list.innerHTML = '<div class="lib-empty">' + tr('notesEmpty') + '</div>';
+    return;
+  }
+  for (const g of groups) {
+    const head = document.createElement('div');
+    head.className = 'nb-head';
+    head.textContent = g.board.name;
+    list.appendChild(head);
+    for (const n of g.notes) {
+      const row = document.createElement('button');
+      row.className = 'nrow';
+      const ic = document.createElement('span');
+      ic.className = 'nic';
+      ic.innerHTML = n.type === 'todo' ? ICONS.todo : ICONS.text;
+      const body = document.createElement('span');
+      body.style.flex = '1';
+      body.style.minWidth = '0';
+      const txt = document.createElement('div');
+      txt.className = 'ntxt';
+      if (n.type === 'text') {
+        txt.textContent = (n.text || '').slice(0, 140) || tr('emptyNote');
+      } else {
+        const open = (n.entries || []).filter(e => !e.done);
+        txt.textContent = open.length ? open.map(e => e.t).join(' · ').slice(0, 140) : tr('allDone');
+      }
+      body.appendChild(txt);
+      if (n.type === 'todo') {
+        const done = (n.entries || []).filter(e => e.done).length;
+        const meta = document.createElement('div');
+        meta.className = 'ndone';
+        meta.textContent = tr('doneCount')(done, (n.entries || []).length);
+        body.appendChild(meta);
+      }
+      row.append(ic, body);
+      row.addEventListener('click', () => jumpToNote(g.board.id, n.id));
+      list.appendChild(row);
+    }
+  }
+}
+async function jumpToNote(boardId, itemId) {
+  closeLibrary();
+  if (boardId !== library.current) await switchBoard(boardId);
+  const it = items.find(i => i.id === itemId);
+  if (!it) return;
+  select(it);
+  const c = itemCenter(it), h = itemH(it);
+  const s = clamp(0.55 * Math.min(innerWidth, innerHeight) / Math.max(it.w, h), MIN_S, 2.5);
+  animateViewTo(innerWidth / 2 - c.x * s, innerHeight / 2 - c.y * s, s);
+}
+$('lib-seg').addEventListener('click', e => {
+  const b = e.target.closest('button');
+  if (!b) return;
+  libTab = b.dataset.tab;
+  renderLibrary();
+});
+
 function openLibrary() { renderLibrary(); document.body.classList.add('lib-open'); document.body.classList.remove('cal-open'); }
 function closeLibrary() { document.body.classList.remove('lib-open'); }
 
 function clearBoardDOM() {
   commitTextEdit();
+  commitTodoEdit();
   select(null);
   for (const it of items) {
     it.el.remove();
@@ -1144,13 +1811,31 @@ async function loadBoardState(state) {
             natW: +raw.natW || 10, natH: +raw.natH || 10,
             ar: +raw.ar > 0 ? +raw.ar : 1,
             rot: isFinite(+raw.rot) ? +raw.rot : 0,
-            color: raw.color || '#f5f2ea', size: +raw.size || 4, pts: raw.pts,
+            color: raw.color || '#f5f2ea', size: +raw.size || 4, hit: +raw.hit || 0, pts: raw.pts,
           });
-        } else if (type === 'text' && typeof raw.text === 'string') {
+        } else if (type === 'text' && typeof raw.text === 'string' && raw.text.trim()) {
           addItem({
             id: raw.id || uid(), type: 'text', x: raw.x, y: raw.y, w: raw.w,
             rot: isFinite(+raw.rot) ? +raw.rot : 0,
             text: raw.text, color: raw.color || '#f5f2ea', size: +raw.size || 20, serif: !!raw.serif,
+          });
+        } else if (type === 'todo' && Array.isArray(raw.entries)) {
+          addItem({
+            id: raw.id || uid(), type: 'todo', x: raw.x, y: raw.y, w: raw.w,
+            rot: isFinite(+raw.rot) ? +raw.rot : 0, size: +raw.size || 15,
+            entries: raw.entries.filter(e => e && typeof e.t === 'string').map(e => ({ t: e.t, done: !!e.done })),
+          });
+        } else if (type === 'palette' && Array.isArray(raw.colors) && raw.colors.length) {
+          addItem({
+            id: raw.id || uid(), type: 'palette', x: raw.x, y: raw.y, w: raw.w,
+            rot: isFinite(+raw.rot) ? +raw.rot : 0,
+            colors: raw.colors.filter(c => /^#[0-9a-f]{6}$/i.test(c)).slice(0, 8),
+          });
+        } else if (type === 'link' && raw.target) {
+          addItem({
+            id: raw.id || uid(), type: 'link', x: raw.x, y: raw.y, w: raw.w,
+            rot: isFinite(+raw.rot) ? +raw.rot : 0,
+            target: String(raw.target), name: String(raw.name || 'Board').slice(0, 48),
           });
         }
       } catch (_) {}
@@ -1187,7 +1872,7 @@ async function switchBoard(id) {
 function createBoard(name) {
   flushSave();
   const id = uid();
-  library.boards.unshift({ id, name: name || 'Board ' + (library.boards.length + 1), created: Date.now(), updated: Date.now(), count: 0 });
+  library.boards.unshift({ id, name: name || tr('boardN')(library.boards.length + 1), created: Date.now(), updated: Date.now(), count: 0 });
   library.current = id;
   clearBoardDOM();
   setLocked(false, true);
@@ -1201,7 +1886,7 @@ function createBoard(name) {
 async function deleteBoard(id) {
   const b = boardMeta(id);
   if (!b) return;
-  if (!confirm(`Supprimer « ${b.name} » et tout son contenu ?`)) return;
+  if (!confirm(tr('delConfirm')(b.name))) return;
   let entries;
   if (id === library.current) {
     entries = items;
@@ -1215,6 +1900,11 @@ async function deleteBoard(id) {
   }
   dbDelMeta('state-' + id).catch(() => {});
   library.boards = library.boards.filter(x => x.id !== id);
+  if (calendar.events.some(e => e.boardId === id)) {
+    calendar.events = calendar.events.filter(e => e.boardId !== id);
+    saveCalendar();
+  }
+  for (const it of items) if (it.type === 'link') updateLinkDOM(it);
   if (id === library.current) {
     ready = false;
     clearBoardDOM();
@@ -1240,7 +1930,7 @@ $('btn-lib').addEventListener('click', () => {
   if (document.body.classList.contains('lib-open')) closeLibrary(); else openLibrary();
 });
 $('lib-scrim').addEventListener('pointerdown', () => { closeLibrary(); closeCalendar(); });
-$('lib-new').addEventListener('click', () => { createBoard(); toast('Nouveau board'); });
+$('lib-new').addEventListener('click', () => { createBoard(); toast(tr('newBoardToast')); });
 document.querySelectorAll('.panel-close').forEach(b => {
   b.addEventListener('click', () => {
     if (b.dataset.close === 'library') closeLibrary(); else closeCalendar();
@@ -1248,19 +1938,22 @@ document.querySelectorAll('.panel-close').forEach(b => {
 });
 
 /* ============================== calendrier ============================== */
-let calendar = { v: 1, events: [] };
+let calendar = { v: 2, events: [] }; // events: {id, boardId, date, time, title}
 const today = () => { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); };
 let calCursor = new Date();
 calCursor.setDate(1);
 let calSel = today();
 
-function saveCalendar() { dbPutMeta('calendar', calendar).catch(() => toast('Calendrier non sauvegardé')); }
+function saveCalendar() { dbPutMeta('calendar', calendar).catch(() => toast(tr('calSaveFail'))); }
 function dkey(d) { return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
-function eventsOn(key) { return calendar.events.filter(e => e.date === key); }
+function scopedEvents() {
+  return calScope === 'all' ? calendar.events : calendar.events.filter(e => e.boardId === library.current);
+}
+function eventsOn(key) { return scopedEvents().filter(e => e.date === key); }
 
 function renderCalendar() {
   const y = calCursor.getFullYear(), m = calCursor.getMonth();
-  $('cal-title').textContent = calCursor.toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' });
+  $('cal-title').textContent = calCursor.toLocaleDateString(LOCALE, { month: 'long', year: 'numeric' });
   const grid = $('cal-grid');
   grid.innerHTML = '';
   const first = new Date(y, m, 1);
@@ -1285,14 +1978,14 @@ function renderCalendar() {
     grid.appendChild(cell);
   }
   const selDate = new Date(calSel + 'T12:00:00');
-  $('cal-day-title').textContent = selDate.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
+  $('cal-day-title').textContent = selDate.toLocaleDateString(LOCALE, { weekday: 'long', day: 'numeric', month: 'long' });
   const evBox = $('cal-events');
   evBox.innerHTML = '';
   const evs = eventsOn(calSel).sort((a, b) => (a.time || '99') < (b.time || '99') ? -1 : 1);
   if (!evs.length) {
     const empty = document.createElement('div');
     empty.className = 'ev-empty';
-    empty.textContent = 'Rien de prévu.';
+    empty.textContent = tr('calNone');
     evBox.appendChild(empty);
   }
   for (const ev of evs) {
@@ -1305,13 +1998,21 @@ function renderCalendar() {
     txt.textContent = ev.title;
     const del = document.createElement('button');
     del.innerHTML = ICONS.trash;
-    del.title = 'Supprimer';
+    del.title = tr('deleteTitle');
     del.addEventListener('click', () => {
       calendar.events = calendar.events.filter(x => x.id !== ev.id);
       saveCalendar();
       renderCalendar();
     });
-    row.append(t, txt, del);
+    row.append(t, txt);
+    if (calScope === 'all') {
+      const b = boardMeta(ev.boardId);
+      const chip = document.createElement('span');
+      chip.className = 'evb';
+      chip.textContent = b ? b.name : '?';
+      row.append(chip);
+    }
+    row.append(del);
     evBox.appendChild(row);
   }
 }
@@ -1322,10 +2023,17 @@ $('cal-form').addEventListener('submit', e => {
   e.preventDefault();
   const title = $('cal-text').value.trim();
   if (!title) return;
-  calendar.events.push({ id: uid(), date: calSel, time: $('cal-time').value || '', title });
+  calendar.events.push({ id: uid(), boardId: library.current, date: calSel, time: $('cal-time').value || '', title });
   $('cal-text').value = '';
   $('cal-time').value = '';
   saveCalendar();
+  renderCalendar();
+});
+$('cal-seg').addEventListener('click', e => {
+  const b = e.target.closest('button');
+  if (!b) return;
+  calScope = b.dataset.scope;
+  for (const btn of $('cal-seg').children) btn.classList.toggle('on', btn === b);
   renderCalendar();
 });
 function openCalendar() { renderCalendar(); document.body.classList.add('cal-open'); document.body.classList.remove('lib-open'); }
@@ -1344,7 +2052,7 @@ async function deliverFile(blob, name) {
   const standalone = navigator.standalone || matchMedia('(display-mode: standalone)').matches;
   if (standalone && navigator.canShare) {
     try {
-      const file = new File([blob], name, { type: 'application/json' });
+      const file = new File([blob], name, { type: blob.type || 'application/json' });
       if (navigator.canShare({ files: [file] })) {
         await navigator.share({ files: [file] });
         return;
@@ -1362,14 +2070,17 @@ async function deliverFile(blob, name) {
   setTimeout(() => URL.revokeObjectURL(a.href), 30000);
 }
 async function exportBoard() {
-  if (!items.length) { toast('Rien à sauvegarder'); return; }
-  toast('Préparation du backup…');
+  if (!items.length) { toast(tr('nothingExport')); return; }
+  toast(tr('backupWorking'));
   try {
     const b = boardMeta(library.current);
+    const events = calendar.events.filter(e => e.boardId === library.current)
+      .map(e => ({ date: e.date, time: e.time, title: e.title }));
     // JSON assemblé par morceaux pour ne pas exploser la mémoire sur iPad
-    const parts = ['{"app":"refy","v":3,"name":' + JSON.stringify((b && b.name) || 'Board') +
+    const parts = ['{"app":"refy","v":4,"name":' + JSON.stringify((b && b.name) || 'Board') +
                    ',"view":' + JSON.stringify({ x: view.x, y: view.y, s: view.s }) +
-                   ',"bg":' + JSON.stringify(bg) + ',"items":['];
+                   ',"bg":' + JSON.stringify(bg) +
+                   ',"events":' + JSON.stringify(events) + ',"items":['];
     for (let i = 0; i < items.length; i++) {
       const it = items[i];
       const entry = serializeItem(it);
@@ -1384,16 +2095,16 @@ async function exportBoard() {
     const slug = ((b && b.name) || 'board').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 30) || 'board';
     const name = `refy-${slug}-${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}.refy.json`;
     await deliverFile(blob, name);
-    toast('Backup exporté : ' + name, 3500);
+    toast(tr('backupDone') + name, 3500);
   } catch (e) {
-    toast('Échec de l\'export');
+    toast(tr('exportFail'));
   }
 }
 async function importBoard(file) {
   let data;
-  try { data = JSON.parse(await file.text()); } catch (e) { toast('Fichier illisible'); return; }
-  if (!data || data.app !== 'refy' || !Array.isArray(data.items)) { toast('Ce n\'est pas un backup Refy'); return; }
-  toast('Import…');
+  try { data = JSON.parse(await file.text()); } catch (e) { toast(tr('fileBad')); return; }
+  if (!data || data.app !== 'refy' || !Array.isArray(data.items)) { toast(tr('notBackup')); return; }
+  toast(tr('importing'));
   // On décode tout AVANT de créer le board : un backup corrompu ne casse rien.
   const decoded = [];
   for (const raw of data.items) {
@@ -1408,7 +2119,7 @@ async function importBoard(file) {
       }
     } catch (e) { /* élément corrompu : on passe */ }
   }
-  if (data.items.length && !decoded.length) { toast('Backup illisible'); return; }
+  if (data.items.length && !decoded.length) { toast(tr('backupBad')); return; }
   const name = (typeof data.name === 'string' && data.name.trim())
     ? data.name.trim().slice(0, 48)
     : (file.name.replace(/\.refy\.json$|\.json$/i, '').replace(/^refy-/, '').slice(0, 48) || 'Import');
@@ -1435,14 +2146,34 @@ async function importBoard(file) {
         ...common, type: 'stroke',
         natW: +raw.natW || 10, natH: +raw.natH || 10,
         ar: +raw.ar > 0 ? +raw.ar : 1,
-        color: raw.color || '#f5f2ea', size: +raw.size || 4, pts: raw.pts,
+        color: raw.color || '#f5f2ea', size: +raw.size || 4, hit: +raw.hit || 0, pts: raw.pts,
       });
-    } else if (d.type === 'text' && typeof raw.text === 'string') {
+    } else if (d.type === 'text' && typeof raw.text === 'string' && raw.text.trim()) {
       addItem({
         ...common, type: 'text',
         text: raw.text, color: raw.color || '#f5f2ea', size: +raw.size || 20, serif: !!raw.serif,
       });
+    } else if (d.type === 'todo' && Array.isArray(raw.entries)) {
+      addItem({
+        ...common, type: 'todo', size: +raw.size || 15,
+        entries: raw.entries.filter(x => x && typeof x.t === 'string').map(x => ({ t: x.t, done: !!x.done })),
+      });
+    } else if (d.type === 'palette' && Array.isArray(raw.colors)) {
+      const cols = raw.colors.filter(c => /^#[0-9a-f]{6}$/i.test(c)).slice(0, 8);
+      if (cols.length) addItem({ ...common, type: 'palette', colors: cols });
+    } else if (d.type === 'link' && raw.target) {
+      addItem({ ...common, type: 'link', target: String(raw.target), name: String(raw.name || 'Board').slice(0, 48) });
     }
+  }
+  if (Array.isArray(data.events)) {
+    let added = 0;
+    for (const ev of data.events) {
+      if (ev && /^\d{4}-\d{2}-\d{2}$/.test(ev.date) && typeof ev.title === 'string' && ev.title.trim()) {
+        calendar.events.push({ id: uid(), boardId: library.current, date: ev.date, time: String(ev.time || '').slice(0, 5), title: ev.title.slice(0, 90) });
+        added++;
+      }
+    }
+    if (added) saveCalendar();
   }
   if (typeof data.bg === 'string' && /^#[0-9a-f]{6}$/i.test(data.bg)) { bg = data.bg; applyBg(); }
   ready = true;
@@ -1455,7 +2186,7 @@ async function importBoard(file) {
   }
   saveState();
   renderLibrary();
-  toast(`« ${name} » importé (${items.length} élément${items.length > 1 ? 's' : ''})`);
+  toast(tr('importDone')(name, items.length));
 }
 
 /* ============================== toolbar & clavier ============================== */
@@ -1469,7 +2200,7 @@ $('btn-rot').addEventListener('click', () => rotateSelected(HALF_PI));
 $('btn-flip').addEventListener('click', flipSelected);
 $('help').addEventListener('click', e => { if (e.target === $('help')) $('help').classList.add('hidden'); });
 $('btn-clear').addEventListener('click', () => {
-  if (!confirm('Supprimer tout le contenu de ce board ?')) return;
+  if (!confirm(tr('clearConfirm'))) return;
   for (const it of [...items]) removeItem(it, true);
   $('help').classList.add('hidden');
   view.x = 0; view.y = 0; view.s = 1;
@@ -1480,11 +2211,11 @@ $('btn-clear').addEventListener('click', () => {
 // nuancier de fonds
 {
   const swWrap = $('swatches');
-  for (const [name, c] of SWATCHES) {
+  SWATCHES.forEach(([name, c], si) => {
     const chip = document.createElement('button');
     chip.className = 'chip';
     chip.dataset.c = c;
-    chip.title = name;
+    chip.title = tr('swatches')[si] || name;
     chip.style.background = c;
     chip.addEventListener('click', () => {
       bg = c;
@@ -1493,7 +2224,7 @@ $('btn-clear').addEventListener('click', () => {
       scheduleSave();
     });
     swWrap.appendChild(chip);
-  }
+  });
 }
 
 function isTyping(e) {
@@ -1501,10 +2232,20 @@ function isTyping(e) {
 }
 document.addEventListener('keydown', e => {
   if (isTyping(e)) {
-    if (e.key === 'Escape' && editingText) e.target.blur();
+    if (e.key === 'Escape' && (editingText || editingTodo)) e.target.blur();
     return;
   }
   if (locked) return;
+  if (presenting) { if (e.key === 'Escape' || e.key === 'p' || e.key === 'P') setPresenting(false); return; }
+  // panneau ouvert : seules les touches de navigation des panneaux restent actives
+  if (document.body.classList.contains('lib-open') || document.body.classList.contains('cal-open')) {
+    if (['Escape', 'b', 'B', 'c', 'C'].includes(e.key)) {
+      if (e.key === 'Escape') { closeLibrary(); closeCalendar(); }
+      else if (e.key === 'b' || e.key === 'B') { if (document.body.classList.contains('lib-open')) closeLibrary(); else openLibrary(); }
+      else { if (document.body.classList.contains('cal-open')) closeCalendar(); else openCalendar(); }
+    }
+    return;
+  }
   if ((e.key === 'Delete' || e.key === 'Backspace') && selected) { e.preventDefault(); removeItem(selected); }
   else if ((e.metaKey || e.ctrlKey) && e.key === 'z' && tool === 'draw') { e.preventDefault(); $('pen-undo').click(); }
   else if (e.metaKey || e.ctrlKey) { /* laisse les raccourcis navigateur */ }
@@ -1516,6 +2257,8 @@ document.addEventListener('keydown', e => {
   else if (e.key === 't' || e.key === 'T') $('btn-text').click();
   else if (e.key === 'b' || e.key === 'B') { if (document.body.classList.contains('lib-open')) closeLibrary(); else openLibrary(); }
   else if (e.key === 'c' || e.key === 'C') { if (document.body.classList.contains('cal-open')) closeCalendar(); else openCalendar(); }
+  else if (e.key === 'p' || e.key === 'P') setPresenting(true);
+  else if (e.key === 'l' || e.key === 'L') document.querySelector('#more button[data-act="todo"]').click();
   else if (e.key === 'Escape') {
     if (tool === 'draw') setTool(null);
     select(null);
@@ -1556,15 +2299,12 @@ document.addEventListener('drop', e => {
 
 /* ============================== démarrage ============================== */
 async function boot() {
+  applyI18n();
   db = await openDB();
-  if (!db) toast('Stockage indisponible : les boards ne seront pas conservés', 4000);
+  if (!db) toast(tr('noStorage'), 4000);
   if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
   applyView();
   applyBg();
-  try {
-    const cal = await dbGetMeta('calendar');
-    if (cal && Array.isArray(cal.events)) calendar = cal;
-  } catch (_) {}
   try {
     library = await dbGetMeta('library');
     if (!library || !Array.isArray(library.boards)) {
@@ -1585,6 +2325,18 @@ async function boot() {
       library.current = id;
     }
     if (!boardMeta(library.current)) library.current = library.boards[0].id;
+    try {
+      const cal = await dbGetMeta('calendar');
+      if (cal && Array.isArray(cal.events)) {
+        calendar = cal;
+        if (cal.v !== 2) {
+          // migration : les anciens événements globaux rejoignent le board courant
+          calendar.v = 2;
+          for (const ev of calendar.events) if (!ev.boardId) ev.boardId = library.current;
+          saveCalendar();
+        }
+      }
+    } catch (_) {}
     let st = null;
     try { st = await dbGetMeta('state-' + library.current); } catch (_) {}
     await loadBoardState(st);

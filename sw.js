@@ -1,4 +1,4 @@
-const CACHE = 'refy-v3';
+const CACHE = 'refy-v4';
 const ASSETS = ['./', './index.html', './app.css', './app.js', './manifest.json', './icon-180.png', './icon-512.png'];
 const PDFJS = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/';
 
@@ -21,7 +21,7 @@ self.addEventListener('fetch', e => {
   if (e.request.url.startsWith(PDFJS)) {
     e.respondWith(
       caches.match(e.request).then(hit => hit || fetch(e.request).then(r => {
-        if (r.ok) {
+        if (r.ok || r.type === 'opaque') {
           const copy = r.clone();
           caches.open(CACHE).then(c => c.put(e.request, copy)).catch(() => {});
         }

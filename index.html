@@ -18,7 +18,7 @@
 
   <div id="hint">
     <div class="mark">Refy</div>
-    <div class="sub">
+    <div class="sub" data-i18n-html="hintSub">
       Ajoute des images avec le bouton +, en les déposant ici, ou en collant (Ctrl+V).<br>
       Un doigt : déplacer &nbsp;·&nbsp; deux doigts : taille et rotation &nbsp;·&nbsp; cadenas : figer pour décalquer.<br>
       Tes boards sont enregistrés automatiquement dans ce navigateur.
@@ -26,59 +26,62 @@
   </div>
 
   <div id="toolbar">
-    <button id="btn-lib" title="Mes boards">
+    <button id="btn-lib" title="Mes boards" data-i18n-title="tbBoards">
       <svg class="ic" viewBox="0 0 24 24"><rect x="4" y="4" width="12" height="12" rx="2"/><path d="M20 9v9a2 2 0 0 1-2 2H9"/></svg>
     </button>
-    <button id="btn-add" title="Ajouter des images">
+    <button id="btn-add" title="Ajouter des images" data-i18n-title="tbAdd">
       <svg class="ic" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
     </button>
-    <button id="btn-draw" title="Crayon">
+    <button id="btn-draw" title="Crayon" data-i18n-title="tbDraw">
       <svg class="ic" viewBox="0 0 24 24"><path d="M4 20l1.2-4.2L16.5 4.5a2.12 2.12 0 0 1 3 3L8.2 18.8 4 20z"/><path d="M14.5 6.5l3 3"/></svg>
     </button>
-    <button id="btn-text" title="Texte">
+    <button id="btn-text" title="Texte" data-i18n-title="tbText">
       <svg class="ic" viewBox="0 0 24 24"><path d="M5 6V4h14v2M12 4v16M9.5 20h5"/></svg>
     </button>
     <div class="sep" id="ctx-sep"></div>
     <div id="ctx">
-      <button id="btn-rot" title="Pivoter de 90°">
+      <button id="btn-rot" title="Pivoter de 90°" data-i18n-title="tbRot">
         <svg class="ic" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v5h-5"/></svg>
       </button>
-      <button id="btn-flip" title="Miroir horizontal">
+      <button id="btn-flip" title="Miroir horizontal" data-i18n-title="tbFlip">
         <svg class="ic" viewBox="0 0 24 24"><path d="M12 3v18" stroke-dasharray="1.5 3.2"/><path d="M8 8l-4 4 4 4"/><path d="M16 8l4 4-4 4"/></svg>
       </button>
-      <button id="btn-adj" title="Réglages">
+      <button id="btn-adj" title="Réglages" data-i18n-title="tbAdj">
         <svg class="ic" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/><circle cx="9" cy="7" r="2.2" fill="var(--paper)"/><circle cx="15" cy="12" r="2.2" fill="var(--paper)"/><circle cx="8" cy="17" r="2.2" fill="var(--paper)"/></svg>
       </button>
-      <button id="btn-del" title="Supprimer">
+      <button id="btn-del" title="Supprimer" data-i18n-title="tbDel">
         <svg class="ic" viewBox="0 0 24 24"><path d="M5 7h14M10 4h4M8 7l.8 13h6.4L16 7M10.3 11v5.5M13.7 11v5.5"/></svg>
       </button>
     </div>
     <div class="sep"></div>
-    <button id="btn-fit" title="Tout afficher">
+    <button id="btn-fit" title="Tout afficher" data-i18n-title="tbFit">
       <svg class="ic" viewBox="0 0 24 24"><path d="M4 9V6a2 2 0 0 1 2-2h3M15 4h3a2 2 0 0 1 2 2v3M20 15v3a2 2 0 0 1-2 2h-3M9 20H6a2 2 0 0 1-2-2v-3"/></svg>
     </button>
-    <button id="btn-lock" title="Verrouiller pour décalquer">
+    <button id="btn-lock" title="Verrouiller pour décalquer" data-i18n-title="tbLock">
       <svg class="ic" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="9" rx="2.2"/><path d="M8 11V7a4 4 0 0 1 7.6-1.7"/></svg>
     </button>
-    <button id="btn-more" title="Plus">
+    <button id="btn-more" title="Plus" data-i18n-title="tbMore">
       <svg class="ic" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.1" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.1" fill="currentColor" stroke="none"/><circle cx="19" cy="12" r="1.1" fill="currentColor" stroke="none"/></svg>
     </button>
   </div>
 
   <div id="more" class="popover">
-    <button data-act="bg"><svg class="ic" viewBox="0 0 24 24"><path d="M12 3.2s6 6.6 6 10.8a6 6 0 0 1-12 0c0-4.2 6-10.8 6-10.8z"/></svg><span>Fond du board</span></button>
-    <button data-act="cal"><svg class="ic" viewBox="0 0 24 24"><rect x="4" y="6" width="16" height="14" rx="2"/><path d="M4 10h16M8 4v4M16 4v4"/></svg><span>Calendrier</span></button>
-    <button data-act="doc"><svg class="ic" viewBox="0 0 24 24"><path d="M7 3h7l4 4v14H7z"/><path d="M14 3v4h4"/></svg><span>Importer un document</span></button>
-    <button data-act="export"><svg class="ic" viewBox="0 0 24 24"><path d="M12 4v11M8 11l4 4 4-4M5 19.5h14"/></svg><span>Exporter le board</span></button>
-    <button data-act="import"><svg class="ic" viewBox="0 0 24 24"><path d="M12 15V4M8 8l4-4 4 4M5 19.5h14"/></svg><span>Importer un backup</span></button>
-    <button data-act="help"><svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9.6 9.2a2.5 2.5 0 0 1 4.9.6c0 1.7-2.5 2-2.5 3.4"/><path d="M12 16.8v.01"/></svg><span>Aide</span></button>
+    <button data-act="todo"><svg class="ic" viewBox="0 0 24 24"><rect x="4" y="5" width="5" height="5" rx="1.2"/><path d="M5.2 7.5l1.2 1.2 2-2.4" stroke-width="1.4"/><path d="M12.5 7.5H20M12.5 16.5H20"/><rect x="4" y="14" width="5" height="5" rx="1.2"/></svg><span data-i18n="mTodo">Checklist</span></button>
+    <button data-act="cal"><svg class="ic" viewBox="0 0 24 24"><rect x="4" y="6" width="16" height="14" rx="2"/><path d="M4 10h16M8 4v4M16 4v4"/></svg><span data-i18n="mCal">Calendrier</span></button>
+    <button data-act="bg"><svg class="ic" viewBox="0 0 24 24"><path d="M12 3.2s6 6.6 6 10.8a6 6 0 0 1-12 0c0-4.2 6-10.8 6-10.8z"/></svg><span data-i18n="mBg">Fond du board</span></button>
+    <button data-act="present"><svg class="ic" viewBox="0 0 24 24"><path d="M2.5 12s3.5-6.5 9.5-6.5S21.5 12 21.5 12s-3.5 6.5-9.5 6.5S2.5 12 2.5 12z"/><circle cx="12" cy="12" r="2.8"/></svg><span data-i18n="mPres">Présentation</span></button>
+    <button data-act="doc"><svg class="ic" viewBox="0 0 24 24"><path d="M7 3h7l4 4v14H7z"/><path d="M14 3v4h4"/></svg><span data-i18n="mDoc">Importer un document</span></button>
+    <button data-act="png"><svg class="ic" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"/><circle cx="9.2" cy="9.2" r="1.6"/><path d="M4 17l4.5-4.5 3.5 3.5 4-5L20 15"/></svg><span data-i18n="mPng">Exporter en PNG</span></button>
+    <button data-act="export"><svg class="ic" viewBox="0 0 24 24"><path d="M12 4v11M8 11l4 4 4-4M5 19.5h14"/></svg><span data-i18n="mExport">Exporter le board</span></button>
+    <button data-act="import"><svg class="ic" viewBox="0 0 24 24"><path d="M12 15V4M8 8l4-4 4 4M5 19.5h14"/></svg><span data-i18n="mImport">Importer un backup</span></button>
+    <button data-act="help"><svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9.6 9.2a2.5 2.5 0 0 1 4.9.6c0 1.7-2.5 2-2.5 3.4"/><path d="M12 16.8v.01"/></svg><span data-i18n="mHelp">Aide</span></button>
   </div>
 
   <div id="swatches" class="popover"></div>
   <div id="penbar" class="popover">
     <div id="pen-colors"></div>
     <input type="range" id="pen-size" min="2" max="24" step="1">
-    <button id="pen-undo" title="Annuler le dernier trait">
+    <button id="pen-undo" title="Annuler le dernier trait" data-i18n-title="tbUndo">
       <svg class="ic" viewBox="0 0 24 24"><path d="M8 5L3 10l5 5"/><path d="M3 10h11a6 6 0 0 1 0 12h-3"/></svg>
     </button>
   </div>
@@ -92,37 +95,51 @@
         <svg class="ic" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>
       </button>
     </header>
+    <div class="seg" id="lib-seg">
+      <button data-tab="boards" class="on">Boards</button>
+      <button data-tab="notes" data-i18n="segNotes">Notes</button>
+    </div>
     <div id="lib-list"></div>
-    <button id="lib-new">+ &nbsp;Nouveau board</button>
+    <button id="lib-new">+ &nbsp;<span data-i18n="libNew">Nouveau board</span></button>
   </aside>
 
   <aside id="calendar">
     <header>
-      <h2>Calendrier</h2>
+      <h2 data-i18n="calTitle">Calendrier</h2>
       <button class="panel-close" data-close="calendar" title="Fermer">
         <svg class="ic" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>
       </button>
     </header>
+    <div class="seg" id="cal-seg">
+      <button data-scope="board" class="on" data-i18n="segBoard">Ce board</button>
+      <button data-scope="all" data-i18n="segAll">Tous</button>
+    </div>
     <div class="cal-nav">
       <button id="cal-prev"><svg class="ic" viewBox="0 0 24 24"><path d="M14 6l-6 6 6 6"/></svg></button>
       <button id="cal-title"></button>
       <button id="cal-next"><svg class="ic" viewBox="0 0 24 24"><path d="M10 6l6 6-6 6"/></svg></button>
     </div>
-    <div class="cal-week"><span>L</span><span>M</span><span>M</span><span>J</span><span>V</span><span>S</span><span>D</span></div>
+    <div class="cal-week" id="cal-week"><span>L</span><span>M</span><span>M</span><span>J</span><span>V</span><span>S</span><span>D</span></div>
     <div id="cal-grid"></div>
     <div class="cal-day">
       <div id="cal-day-title"></div>
       <div id="cal-events"></div>
       <form id="cal-form">
         <input type="time" id="cal-time">
-        <input type="text" id="cal-text" placeholder="Nouvel événement" maxlength="90" autocomplete="off">
+        <input type="text" id="cal-text" placeholder="Nouvel événement" data-i18n-ph="evPlaceholder" maxlength="90" autocomplete="off">
         <button type="submit" title="Ajouter"><svg class="ic" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></button>
       </form>
     </div>
   </aside>
 
+  <div id="presbar">
+    <button id="presbtn" title="Quitter la présentation" data-i18n-title="tbPresQuit">
+      <svg class="ic" viewBox="0 0 24 24" style="width:20px;height:20px"><path d="M2.5 12s3.5-6.5 9.5-6.5S21.5 12 21.5 12s-3.5 6.5-9.5 6.5S2.5 12 2.5 12z"/><path d="M5 19L19 5"/></svg>
+    </button>
+  </div>
+
   <div id="lockbar">
-    <button id="lockbtn" title="Maintenir pour déverrouiller">
+    <button id="lockbtn" title="Maintenir pour déverrouiller" data-i18n-title="tbUnlock">
       <svg class="ic" viewBox="0 0 24 24" style="width:20px;height:20px"><rect x="5" y="11" width="14" height="9" rx="2.2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
       <svg class="ring" viewBox="0 0 52 52"><circle cx="26" cy="26" r="24"/></svg>
     </button>
@@ -131,29 +148,35 @@
   <div id="help" class="hidden">
     <div class="card">
       <h2>Refy</h2>
-      <div class="tag">boards de références</div>
+      <div class="tag" data-i18n="helpTag">boards de références</div>
       <h3>Boards</h3>
-      <p>L'icône en haut à gauche de la barre ouvre ta librairie : crée, renomme, supprime et change de board. Tout est enregistré automatiquement dans le navigateur.</p>
-      <h3>Ajouter</h3>
-      <p>Bouton + (photos), glisser-déposer, coller (<kbd>Ctrl/Cmd V</kbd> — images ou texte), et « Importer un document » dans le menu ··· pour les PDF et notes texte.</p>
-      <h3>Crayon &amp; texte</h3>
-      <p>Le crayon dessine à main levée (couleur, épaisseur, annuler dans la palette) ; deux doigts naviguent pendant le dessin. Le T pose une zone de texte : double-tape dessus pour l'éditer, poignées pour la taille.</p>
-      <h3>Manipuler</h3>
-      <p>Un doigt : déplacer. Deux doigts sur un élément : taille + rotation (aimantée sur 0/90/180/270°). Poignées d'angle : taille. Poignée du haut : rotation.</p>
-      <h3>Décalquer</h3>
-      <p>Les réglages d'une image (icône curseurs) offrent noir &amp; blanc, contraste, opacité et <b>extraction de contours</b>. Le cadenas fige tout l'écran et empêche la mise en veille — <b>maintiens-le une seconde</b> pour déverrouiller.</p>
-      <h3>Calendrier</h3>
-      <p>Dans le menu ··· : un agenda local, sans synchronisation — tout reste dans Refy.</p>
-      <h3>Backup</h3>
-      <p>Exporter/Importer dans le menu ··· : le board devient un fichier sur l'appareil ; l'import crée un nouveau board.</p>
-      <h3>Clavier</h3>
-      <p><kbd>B</kbd> boards · <kbd>D</kbd> crayon · <kbd>T</kbd> texte · <kbd>C</kbd> calendrier · <kbd>R</kbd> pivoter · <kbd>M</kbd> miroir · <kbd>F</kbd> tout afficher · <kbd>Suppr</kbd> supprimer · <kbd>Échap</kbd> fermer</p>
-      <button class="danger" id="btn-clear">Vider ce board</button>
+      <p data-i18n-html="hpBoards">L'icône en haut à gauche de la barre ouvre ta librairie : crée, renomme, supprime et change de board. Tout est enregistré automatiquement dans le navigateur.</p>
+      <h3 data-i18n="htAdd">Ajouter</h3>
+      <p data-i18n-html="hpAdd">Bouton + (photos), glisser-déposer, coller (<kbd>Ctrl/Cmd V</kbd> — images ou texte), et « Importer un document » dans le menu ··· pour les PDF et notes texte.</p>
+      <h3 data-i18n="htPen">Crayon &amp; texte</h3>
+      <p data-i18n-html="hpPen">Le crayon dessine à main levée (couleur, épaisseur, annuler dans la palette) ; deux doigts naviguent pendant le dessin. Le T pose une zone de texte : double-tape dessus pour l'éditer, poignées pour la taille.</p>
+      <h3 data-i18n="htManip">Manipuler</h3>
+      <p data-i18n-html="hpManip">Un doigt : déplacer. Deux doigts sur un élément : taille + rotation (aimantée sur 0/90/180/270°). Poignées d'angle : taille. Poignée du haut : rotation.</p>
+      <h3 data-i18n="htTrace">Décalquer</h3>
+      <p data-i18n-html="hpTrace">Les réglages d'une image (icône curseurs) offrent noir &amp; blanc, contraste, opacité et <b>extraction de contours</b>. Le cadenas fige tout l'écran et empêche la mise en veille — <b>maintiens-le une seconde</b> pour déverrouiller.</p>
+      <h3 data-i18n="htTodo">Checklists &amp; notes</h3>
+      <p data-i18n-html="hpTodo">Checklist dans le menu ··· (<kbd>L</kbd>) : coche d'un tap, double-tape une ligne pour l'éditer, Entrée ajoute la suivante. L'onglet <b>Notes</b> de la librairie rassemble textes et checklists de tous les boards — tape pour y sauter.</p>
+      <h3 data-i18n="htCal">Calendrier</h3>
+      <p data-i18n-html="hpCal">Menu ··· ou <kbd>C</kbd> : un agenda local, sans synchronisation. Chaque événement appartient au board courant ; la vue <b>Tous</b> montre l'agenda de tous les boards. Les événements partent avec le board dans les backups.</p>
+      <h3 data-i18n="htPal">Palette &amp; liens</h3>
+      <p data-i18n-html="hpPal">« Extraire la palette » dans les réglages d'une image pose un nuancier de ses couleurs (tape une couleur pour copier son code). Depuis la librairie, l'icône chaîne pose une carte-lien vers un autre board — double-tape pour l'ouvrir.</p>
+      <h3 data-i18n="htPres">Présentation &amp; export</h3>
+      <p data-i18n-html="hpPres">Le mode présentation (<kbd>P</kbd>) masque toute l'interface, navigation seule. « Exporter en PNG » aplatit le board en une image.</p>
+      <h3 data-i18n="htBackup">Backup</h3>
+      <p data-i18n-html="hpBackup">Exporter/Importer dans le menu ··· : le board devient un fichier sur l'appareil ; l'import crée un nouveau board.</p>
+      <h3 data-i18n="htKeys">Clavier</h3>
+      <p data-i18n-html="hpKeys"><kbd>B</kbd> boards · <kbd>D</kbd> crayon · <kbd>T</kbd> texte · <kbd>L</kbd> checklist · <kbd>C</kbd> calendrier · <kbd>P</kbd> présentation · <kbd>R</kbd> pivoter · <kbd>M</kbd> miroir · <kbd>F</kbd> tout afficher · <kbd>Suppr</kbd> supprimer · <kbd>Échap</kbd> fermer</p>
+      <button class="danger" id="btn-clear" data-i18n="clearBtn">Vider ce board</button>
     </div>
   </div>
 
   <div id="toast" class="hidden"></div>
-  <div id="drop-overlay">Dépose tes fichiers ici</div>
+  <div id="drop-overlay" data-i18n="dropHere">Dépose tes fichiers ici</div>
 
   <input type="file" id="file-images" accept="image/*" multiple hidden>
   <input type="file" id="file-board" accept=".refy,.json,application/json" hidden>

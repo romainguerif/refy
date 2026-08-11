@@ -36,6 +36,48 @@ body.drawing #vp { cursor:crosshair; }
 }
 .item.text .tx.serif { font-family:"Bodoni 72", Didot, Georgia, serif; }
 .item.text.editing { cursor:text; }
+
+/* cartes : checklist, palette, lien */
+.item.todo, .item.link {
+  background:var(--paper); color:var(--ink); border-radius:.6em;
+  box-shadow:0 .12em .5em rgba(0,0,0,.22);
+}
+.item.todo { padding:.55em .7em; }
+.trow { display:flex; align-items:flex-start; gap:.55em; padding:.22em 0; }
+.todo-check {
+  flex:none; width:1.05em; height:1.05em; margin-top:.14em; border:.09em solid var(--ink);
+  border-radius:.25em; background:none; cursor:pointer; position:relative; padding:0;
+}
+.todo-check.done { background:var(--ink); }
+.todo-check.done::after {
+  content:""; position:absolute; inset:22% 18% 32% 18%;
+  border-left:.13em solid var(--paper); border-bottom:.13em solid var(--paper);
+  transform:rotate(-48deg);
+}
+.tlabel { flex:1; line-height:1.45; word-break:break-word; white-space:pre-wrap; min-height:1em; outline:none; caret-color:var(--accent); }
+.tlabel.done { color:var(--ink-soft); text-decoration:line-through; }
+.trow.tadd { opacity:.45; cursor:pointer; }
+.trow.tadd .todo-plus {
+  flex:none; width:1.05em; height:1.05em; margin-top:.14em; border:.09em dashed var(--ink);
+  border-radius:.25em; background:none; cursor:pointer; padding:0; position:relative;
+}
+.trow.tadd .todo-plus::after { content:""; position:absolute; inset:42% 22%; background:var(--ink); }
+.trow.tadd .todo-plus::before { content:""; position:absolute; inset:22% 42%; background:var(--ink); }
+.item.palette { display:flex; border-radius:.5em; overflow:hidden; box-shadow:0 .12em .5em rgba(0,0,0,.22); background:var(--paper); }
+.pcell { flex:1; display:flex; flex-direction:column; cursor:pointer; }
+.pcell .pc { width:100%; aspect-ratio:1/1.15; }
+.pcell .phex {
+  text-align:center; font-size:.32em; letter-spacing:.05em; padding:.5em 0 .6em;
+  color:var(--ink); font-family:ui-monospace, "SF Mono", Menlo, monospace; background:var(--paper);
+}
+.item.link { display:flex; align-items:center; gap:.55em; padding:.6em .75em; cursor:pointer; }
+.item.link .lic { flex:none; width:1.1em; height:1.1em; stroke-width:1.9; }
+.item.link .lname {
+  font-family:"Bodoni 72", Didot, Georgia, serif; font-style:italic; font-size:1.15em;
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+}
+.item.link .larrow { flex:none; width:.9em; height:.9em; margin-left:auto; opacity:.5; }
+.item.link.dead { opacity:.55; }
 @keyframes born { from { opacity:0; scale:.86; } }
 .item.born { animation:born .32s var(--spring); }
 @keyframes die { to { opacity:0; scale:.86; } }
@@ -206,6 +248,11 @@ aside h2 { font-family:"Bodoni 72", Didot, Georgia, serif; font-style:italic; fo
 .ev { display:flex; align-items:center; gap:10px; padding:8px 4px; border-radius:10px; animation:ev-in .25s var(--spring); }
 .ev time { font-size:12px; color:var(--accent); font-variant-numeric:tabular-nums; min-width:40px; }
 .ev .evt { flex:1; font-size:14px; color:var(--ink); }
+.ev .evb {
+  flex:none; font-size:10px; letter-spacing:.05em; color:var(--ink-soft);
+  border:1px solid var(--hair); border-radius:6px; padding:2px 6px; max-width:90px;
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+}
 .ev button { border:none; background:none; color:var(--ink-soft); cursor:pointer; border-radius:8px; padding:6px; display:flex; }
 .ev button:active { background:rgba(22,22,22,.08); }
 .ev button svg { width:14px; height:14px; }
@@ -225,6 +272,46 @@ aside h2 { font-family:"Bodoni 72", Didot, Georgia, serif; font-style:italic; fo
   cursor:pointer; display:flex; align-items:center; justify-content:center; flex:none;
 }
 #cal-form button .ic { width:16px; height:16px; }
+
+/* ---------- présentation ---------- */
+body.presenting #toolbar { opacity:0; transform:translateX(-50%) translateY(90px); pointer-events:none; }
+#presbar {
+  position:fixed; right:16px; bottom:max(16px, env(safe-area-inset-bottom)); z-index:100;
+  opacity:0; pointer-events:none; transform:scale(.5);
+  transition:opacity .3s ease, transform .38s var(--spring);
+}
+body.presenting #presbar { opacity:1; pointer-events:auto; transform:scale(1); }
+#presbtn {
+  width:52px; height:52px; border:none; border-radius:50%;
+  background:rgba(20,20,20,.55); color:#fff; cursor:pointer; opacity:.5;
+  display:flex; align-items:center; justify-content:center;
+  box-shadow:0 4px 16px rgba(0,0,0,.4); -webkit-tap-highlight-color:transparent;
+}
+
+/* ---------- segmented ---------- */
+.seg {
+  display:flex; gap:4px; margin:2px 16px 8px; padding:4px;
+  background:var(--paper-2); border-radius:12px;
+}
+.seg button {
+  flex:1; border:none; background:none; padding:8px; border-radius:9px;
+  font-size:12.5px; letter-spacing:.03em; color:var(--ink-soft); cursor:pointer;
+  transition:background .18s ease, color .18s ease;
+}
+.seg button.on { background:var(--paper); color:var(--ink); box-shadow:0 1px 3px rgba(0,0,0,.12); }
+
+/* ---------- notes (librairie) ---------- */
+.nb-head { font-size:11px; letter-spacing:.12em; text-transform:uppercase; color:var(--ink-soft); margin:14px 6px 4px; }
+.nrow {
+  display:flex; align-items:flex-start; gap:10px; width:100%; text-align:left;
+  border:none; background:none; padding:9px 10px; border-radius:11px; cursor:pointer;
+  color:var(--ink); -webkit-tap-highlight-color:transparent;
+}
+.nrow:active { background:rgba(22,22,22,.07); }
+.nrow .nic { flex:none; width:15px; height:15px; margin-top:2px; color:var(--ink-soft); }
+.nrow .ntxt { flex:1; font-size:13.5px; line-height:1.45; overflow:hidden; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; }
+.nrow .ndone { color:var(--ink-soft); font-size:11.5px; margin-top:2px; }
+.lib-empty { font-size:13px; color:var(--ink-soft); padding:16px 10px; }
 
 /* ---------- verrou ---------- */
 #lockbar {

@@ -141,28 +141,28 @@ body:not(.sel-img):not(.sel-text) #btn-adj { display:none; }
   transition:opacity .2s ease, transform .24s var(--spring);
 }
 .popover.open { opacity:1; pointer-events:auto; transform:translateX(-50%) translateY(0) scale(1); }
-/* menu ··· : un vrai menu — l'accueil liste les familles, chaque famille glisse latéralement */
-#more { flex-direction:column; align-items:stretch; gap:0; padding:8px;
-  width:min(248px, calc(100vw - 24px)); overflow:hidden;
-  transition:opacity .2s ease, transform .24s var(--spring), height .3s var(--swift); }
+/* menu ··· : un vrai menu — l'accueil liste les familles, chaque famille glisse latéralement.
+   Le contenu colle au bas : la hauteur (animée en JS) pousse vers le haut, les lignes ne bougent pas. */
+#more { flex-direction:column; align-items:stretch; justify-content:flex-end; gap:0; padding:8px;
+  width:min(248px, calc(100vw - 24px)); overflow:hidden; }
 #more .mpane {
   display:flex; flex-direction:column; align-items:stretch;
   max-height:min(70vh, 36rem); overflow-y:auto;
-  transition:transform .3s var(--swift), opacity .22s ease;
+  transition:transform .34s var(--swift), opacity .26s ease;
 }
 #more .mpane.gone-l, #more .mpane.gone-r {
-  position:absolute; left:8px; right:8px; top:8px; opacity:0; pointer-events:none;
+  position:absolute; left:8px; right:8px; bottom:8px; opacity:0; pointer-events:none;
 }
 #more .mpane.gone-l { transform:translateX(-16%); }
 #more .mpane.gone-r { transform:translateX(16%); }
-/* les lignes du panneau visible arrivent en cascade */
+/* cascade des lignes, seulement à l'ouverture du menu (classe fresh) */
 @keyframes mrow { from { opacity:0; transform:translateY(6px); } }
-#more.open .mpane:not(.gone-l):not(.gone-r) > * { animation:mrow .3s var(--swift) backwards; }
-#more.open .mpane:not(.gone-l):not(.gone-r) > :nth-child(2) { animation-delay:.03s; }
-#more.open .mpane:not(.gone-l):not(.gone-r) > :nth-child(3) { animation-delay:.06s; }
-#more.open .mpane:not(.gone-l):not(.gone-r) > :nth-child(4) { animation-delay:.09s; }
-#more.open .mpane:not(.gone-l):not(.gone-r) > :nth-child(5) { animation-delay:.12s; }
-#more.open .mpane:not(.gone-l):not(.gone-r) > :nth-child(6) { animation-delay:.15s; }
+#more.open.fresh .mpane:not(.gone-l):not(.gone-r) > * { animation:mrow .3s var(--swift) backwards; }
+#more.open.fresh .mpane:not(.gone-l):not(.gone-r) > :nth-child(2) { animation-delay:.03s; }
+#more.open.fresh .mpane:not(.gone-l):not(.gone-r) > :nth-child(3) { animation-delay:.06s; }
+#more.open.fresh .mpane:not(.gone-l):not(.gone-r) > :nth-child(4) { animation-delay:.09s; }
+#more.open.fresh .mpane:not(.gone-l):not(.gone-r) > :nth-child(5) { animation-delay:.12s; }
+#more.open.fresh .mpane:not(.gone-l):not(.gone-r) > :nth-child(6) { animation-delay:.15s; }
 #more button {
   display:flex; align-items:center; gap:12px; border:none; background:none; color:var(--ink);
   font-size:14px; letter-spacing:.01em; padding:11px 14px; border-radius:11px; cursor:pointer;

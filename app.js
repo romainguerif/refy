@@ -54,6 +54,7 @@ const I18N_FR = {
   gIn: 'dans', gLast: 'derniere section', gBar: 'mesure', gClose: 'Fermer',
   gBadPlan: 'Ce fichier n\'est pas une grille de morceau',
   gAdded: n => `Grille « ${n} » posee — double-tape pour l\'ouvrir`,
+  storageDown: 'Stockage local injoignable : rien ne sera enregistré',
   renameTitle: 'Renommer', deleteTitle: 'Supprimer', linkTitle: 'Poser un lien sur le board actuel',
   linkPosed: n => `Lien vers « ${n} » posé — double-tape pour l'ouvrir`,
   namePrompt: 'Nom du board', delConfirm: n => `Supprimer « ${n} » et tout son contenu ?`,
@@ -93,6 +94,7 @@ const I18N_EN = {
   gBadPlan: 'This file is not a song plan',
   gAdded: n => `Plan “${n}” dropped — double-tap to open it`,
   mGrille: 'Song plan',
+  storageDown: 'Local storage unreachable: nothing will be saved',
   renameTitle: 'Rename', deleteTitle: 'Delete', linkTitle: 'Drop a link on the current board',
   linkPosed: n => `Link to “${n}” added — double-tap to open it`,
   namePrompt: 'Board name', delConfirm: n => `Delete “${n}” and all its content?`,
@@ -215,6 +217,16 @@ function animateViewTo(tx, ty, ts) {
 /* ============================== IndexedDB ============================== */
 let db = null;
 let saveBroken = '';
+let bootError = '';        /* le stockage n'a pas repondu : on ne sauvegarde plus rien */
+/* Panne de stockage : on le dit fort, et on empêche toute écriture qui
+   remplacerait les vrais boards par du vide. */
+function alarmStorage() {
+  toast(tr('storageDown'), 9000);
+  const el = document.createElement('div');
+  el.id = 'storage-alarm';
+  el.textContent = tr('storageDown') + ' — ' + bootError;
+  document.body.appendChild(el);
+}
 let dbRepaired = '';       /* rayons recréés au démarrage, pour le diagnostic */
 function openDB() {
   return new Promise(res => {
@@ -2924,12 +2936,24 @@ document.addEventListener('drop', e => {
 async function boot() {
   applyI18n();
   db = await openDB();
-  if (!db) toast(tr('noStorage'), 4000);
+  if (!db) bootError = 'base indisponible';
   if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
   applyView();
   applyBg();
   try {
-    library = await dbGetMeta('library');
+    /* Une lecture qui ÉCHOUE et une première ouverture se ressemblent : dans les
+       deux cas on n'a rien en main. Les confondre est ce qui coûte cher — on
+       repartirait d'une bibliothèque vide, et la première sauvegarde écraserait
+       les vrais boards. En cas d'échec on s'arrête donc, sans rien réécrire. */
+    try { library = await dbGetMeta('library'); }
+    catch (e) { bootError = 'lecture impossible (' + ((e && e.name) || e) + ')'; }
+    if (bootError) {
+      ready = false;
+      renderLibrary();
+      updateHint();
+      alarmStorage();
+      return;
+    }
     if (!library || !Array.isArray(library.boards)) {
       // première ouverture, ou migration depuis l'ancienne version mono-board
       let legacy = null;
@@ -4159,7 +4183,8 @@ async function storageInfo() {
   if (!db) base = 'base fermée';
   else if (!db.objectStoreNames.contains('meta')) base = 'RAYON MANQUANT';
   else if (dbRepaired) base = 'réparée (' + dbRepaired + ')';
-  if (saveBroken) base = 'ÉCHEC : ' + saveBroken;
+  if (saveBroken) base = 'ÉCHEC ÉCRITURE : ' + saveBroken;
+  if (bootError) base = 'PANNE : ' + bootError;
   const boards = library ? library.boards.length : 0;
   return { usage, quota, persisted, base, boards, pct: quota ? Math.min(100, usage / quota * 100) : 0 };
 }

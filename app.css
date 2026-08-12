@@ -795,3 +795,10 @@ body.dropping #drop-overlay { display:flex; }
 .dgauge { height:.28rem; border-radius:.14rem; background:rgba(255,255,255,.14); overflow:hidden; margin:.1rem 0 .35rem; }
 .dgauge i { display:block; height:100%; background:var(--accent); border-radius:.14rem;
   transition:width .6s var(--swift); }
+
+/* alarme de stockage : impossible à rater, impossible à confondre avec autre chose */
+#storage-alarm {
+  position:fixed; left:0; right:0; top:0; z-index:400; padding:.6rem 1rem;
+  padding-top:calc(.6rem + env(safe-area-inset-top));
+  background:#c8553d; color:#fff; font-size:.85rem; text-align:center; line-height:1.35;
+}

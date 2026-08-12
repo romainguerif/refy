@@ -296,6 +296,7 @@ function saveState() {
   if (b) { b.updated = Date.now(); b.count = items.length; }
   Promise.all([dbPutMeta('state-' + library.current, state), dbPutMeta('library', library)])
     .catch(() => toast(tr('saveFull')));
+  if (typeof dbxTouch === 'function') dbxTouch();
 }
 
 /* ============================== construction des items ============================== */
@@ -2363,9 +2364,9 @@ async function switchBoard(id) {
   if (b) toast(b.name);
 }
 
-function createBoard(name) {
+function createBoard(name, forceId) {
   flushSave();
-  const id = uid();
+  const id = forceId || uid();
   library.boards.unshift({ id, name: name || tr('boardN')(library.boards.length + 1), created: Date.now(), updated: Date.now(), count: 0 });
   library.current = id;
   clearBoardDOM();
@@ -3799,39 +3800,45 @@ $('vp').addEventListener('click', e => {
   if (next !== selectedArrow) { selectedArrow = next; drawArrows(); }
 });
 
+
 /* ============================== Dropbox ==============================
-   Sauvegarde et restauration d'un board dans un dossier cloisonné.
-   PKCE : aucune clé secrète, aucun serveur. Le fichier envoyé est
-   exactement le même que le backup local, images comprises. */
+   Synchro transparente : une fois connecté, l'utilisateur n'a plus rien à faire.
+   La structure d'un board (quelques Ko) part à chaque changement ; les images
+   partent une seule fois, nommées par l'empreinte de leur contenu. */
 
 const DBX_KEY = 'vrteolr7ryzkul7';
 const DBX_LS = 'refy.dbx';
+const DBX_META = 'refy.dbx.meta';
+const DBX_DELAY = 6000;            /* on laisse retomber la poussière avant d'envoyer */
+
 const DT = lang === 'fr' ? {
-  connect: 'Connecter Dropbox', send: 'Envoyer ce board', get: 'Récupérer…', off: 'Déconnecter',
-  sending: 'Envoi vers Dropbox…', sent: 'Envoyé sur Dropbox', getting: 'Récupération…',
-  empty: 'Aucune sauvegarde sur Dropbox', fail: 'Dropbox : échec', bye: 'Dropbox déconnecté',
-  back: '‹ Retour', title: 'Dropbox',
+  connect: 'Connecter Dropbox', off: 'Déconnecter', now: 'Synchroniser maintenant',
+  on: 'Synchro active', syncing: 'Synchro…', ok: 'À jour', fail: 'Synchro en échec',
+  offline: 'Hors ligne — reprise au retour du réseau', bye: 'Dropbox déconnecté',
+  conflict: 'Deux versions : la plus récente est gardée, l\u2019autre est copiée dans Dropbox',
 } : {
-  connect: 'Connect Dropbox', send: 'Send this board', get: 'Restore…', off: 'Disconnect',
-  sending: 'Sending to Dropbox…', sent: 'Sent to Dropbox', getting: 'Restoring…',
-  empty: 'No backup on Dropbox', fail: 'Dropbox: failed', bye: 'Dropbox disconnected',
-  back: '‹ Back', title: 'Dropbox',
+  connect: 'Connect Dropbox', off: 'Disconnect', now: 'Sync now',
+  on: 'Sync on', syncing: 'Syncing…', ok: 'Up to date', fail: 'Sync failed',
+  offline: 'Offline — will resume', bye: 'Dropbox disconnected',
+  conflict: 'Two versions: newest kept, the other copied to Dropbox',
 };
 
-const dbxRedirect = () => location.origin + location.pathname;
+const dbxRedirect = () => location.origin + location.pathname.replace(/index\.html$/, '');
 function dbxLoad() { try { return JSON.parse(localStorage.getItem(DBX_LS) || 'null'); } catch (_) { return null; } }
 function dbxSave(t) { try { localStorage.setItem(DBX_LS, JSON.stringify(t)); } catch (_) {} }
-function dbxForget() { try { localStorage.removeItem(DBX_LS); } catch (_) {} }
+function dbxForget() { try { localStorage.removeItem(DBX_LS); localStorage.removeItem(DBX_META); } catch (_) {} }
 const dbxOn = () => !!(dbxLoad() || {}).refresh;
+function dbxMeta() { try { return JSON.parse(localStorage.getItem(DBX_META) || '{}'); } catch (_) { return {}; } }
+function dbxSetMeta(m) { try { localStorage.setItem(DBX_META, JSON.stringify(m)); } catch (_) {} }
 
 function dbxRand(n) {
   const a = new Uint8Array(n);
   crypto.getRandomValues(a);
   return [...a].map(x => 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~'[x % 66]).join('');
 }
-function dbxB64url(buf) {
-  return btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-}
+const dbxB64url = buf => btoa(String.fromCharCode(...new Uint8Array(buf)))
+  .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+
 async function dbxConnect() {
   const verifier = dbxRand(64);
   try { sessionStorage.setItem('refy.dbxv', verifier); } catch (_) {}
@@ -3842,7 +3849,7 @@ async function dbxConnect() {
   u.searchParams.set('redirect_uri', dbxRedirect());
   u.searchParams.set('code_challenge', challenge);
   u.searchParams.set('code_challenge_method', 'S256');
-  u.searchParams.set('token_access_type', 'offline');   /* pour ne pas redemander toutes les 4 h */
+  u.searchParams.set('token_access_type', 'offline');
   location.href = u.toString();
 }
 async function dbxToken(body) {
@@ -3854,26 +3861,21 @@ async function dbxToken(body) {
   if (!r.ok) throw new Error('token');
   const j = await r.json();
   const cur = dbxLoad() || {};
-  dbxSave({
-    access: j.access_token,
-    refresh: j.refresh_token || cur.refresh,
-    exp: Date.now() + (j.expires_in || 14000) * 1000 - 60000,
-  });
+  dbxSave({ access: j.access_token, refresh: j.refresh_token || cur.refresh,
+            exp: Date.now() + (j.expires_in || 14000) * 1000 - 60000 });
 }
-/* retour depuis la page Dropbox */
 async function dbxReturn() {
-  const p = new URLSearchParams(location.search);
-  const code = p.get('code');
-  if (!code) return;
+  const code = new URLSearchParams(location.search).get('code');
+  if (!code) return false;
   let verifier = '';
   try { verifier = sessionStorage.getItem('refy.dbxv') || ''; } catch (_) {}
   history.replaceState(null, '', dbxRedirect());
-  if (!verifier) return;
+  if (!verifier) return false;
   try {
     await dbxToken({ grant_type: 'authorization_code', code, code_verifier: verifier, redirect_uri: dbxRedirect() });
     try { sessionStorage.removeItem('refy.dbxv'); } catch (_) {}
-    toast('Dropbox ✓');
-  } catch (_) { toast(DT.fail); }
+    return true;
+  } catch (_) { return false; }
 }
 async function dbxAuth() {
   const t = dbxLoad();
@@ -3888,75 +3890,190 @@ async function dbxRpc(path, arg) {
     headers: { Authorization: 'Bearer ' + await dbxAuth(), 'Content-Type': 'application/json' },
     body: JSON.stringify(arg),
   });
-  if (!r.ok) throw new Error(await r.text());
-  return r.json();
+  if (!r.ok) { const e = new Error(await r.text()); e.status = r.status; throw e; }
+  return r.status === 204 ? null : r.json();
 }
-async function dbxUpload(name, blob) {
+async function dbxUp(path, blob, mode) {
   const r = await fetch('https://content.dropboxapi.com/2/files/upload', {
     method: 'POST',
     headers: {
       Authorization: 'Bearer ' + await dbxAuth(),
-      'Dropbox-API-Arg': JSON.stringify({ path: '/' + name, mode: 'overwrite', mute: true }),
+      'Dropbox-API-Arg': JSON.stringify({ path, mode: mode || 'overwrite', mute: true }),
       'Content-Type': 'application/octet-stream',
     },
     body: blob,
   });
-  if (!r.ok) throw new Error(await r.text());
+  if (!r.ok) { const e = new Error(await r.text()); e.status = r.status; throw e; }
   return r.json();
 }
-async function dbxDownload(path) {
+async function dbxDown(path) {
   const r = await fetch('https://content.dropboxapi.com/2/files/download', {
     method: 'POST',
     headers: { Authorization: 'Bearer ' + await dbxAuth(), 'Dropbox-API-Arg': JSON.stringify({ path }) },
   });
-  if (!r.ok) throw new Error(await r.text());
+  if (!r.ok) { const e = new Error(await r.text()); e.status = r.status; throw e; }
   return r.blob();
 }
+async function dbxDownJson(path) { try { return JSON.parse(await (await dbxDown(path)).text()); } catch (_) { return null; } }
 
-/* ---------- le panneau ---------- */
-function dbxPanel(list) {
-  const bar = $('dbx');
-  if (!dbxOn()) {
-    bar.innerHTML = `<button class="dbtn primary" data-db="on">${DT.connect}</button>`;
-  } else if (list) {
-    bar.innerHTML = `<button class="dbtn" data-db="menu">${DT.back}</button>`
-      + (list.length ? list.map(e => `<button class="dbtn file" data-db="pull" data-p="${esc(e.path_lower)}">${esc(e.name.replace(/\.refy\.json$/, ''))}</button>`).join('')
-                     : `<span class="dhint">${DT.empty}</span>`);
-  } else {
-    bar.innerHTML = `<button class="dbtn primary" data-db="push">${DT.send}</button>`
-      + `<button class="dbtn" data-db="list">${DT.get}</button>`
-      + `<button class="dbtn quiet" data-db="off">${DT.off}</button>`;
+/* empreinte du contenu : une image identique n'est jamais renvoyée deux fois */
+async function dbxHash(blob) {
+  const buf = await blob.arrayBuffer();
+  const h = await crypto.subtle.digest('SHA-256', buf);
+  return [...new Uint8Array(h)].slice(0, 16).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+/* ---------- structure d'un board, sans les images ---------- */
+async function boardStruct() {
+  const b = boardMeta(library.current);
+  const events = calendar.events.filter(e => e.boardId === library.current)
+    .map(e => ({ date: e.date, time: e.time, title: e.title }));
+  const out = [];
+  for (const it of items) {
+    const entry = serializeItem(it);
+    if (it.type === 'img') {
+      if (!it.hash && it.blob) it.hash = await dbxHash(it.blob);
+      entry.hash = it.hash;
+      delete entry.data;
+    }
+    out.push(entry);
   }
+  return {
+    app: 'refy', v: 5, id: library.current, name: (b && b.name) || 'Board',
+    updated: (b && b.updated) || Date.now(),
+    view: { x: view.x, y: view.y, s: view.s }, bg,
+    arrows: arrows.map(a => ({ from: a.from, to: a.to, color: a.color })),
+    events, items: out,
+  };
+}
+
+/* ---------- envoi ---------- */
+let dbxBusy = false, dbxTimer = null, dbxDirty = new Set();
+
+async function dbxPushCurrent() {
+  const id = library.current;
+  const st = await boardStruct();
+  const meta = dbxMeta();
+  const known = meta[id] || {};
+
+  /* les images d'abord : une seule fois chacune */
+  const sent = new Set(known.imgs || []);
+  for (const it of items) {
+    if (it.type !== 'img' || !it.hash || sent.has(it.hash)) continue;
+    try {
+      await dbxUp('/img/' + it.hash, it.blob);
+      sent.add(it.hash);
+    } catch (_) { /* on réessaiera au prochain tour */ }
+  }
+
+  const blob = new Blob([JSON.stringify(st)], { type: 'application/json' });
+  let res;
+  try {
+    res = await dbxUp('/boards/' + id + '.json', blob,
+      known.rev ? { '.tag': 'update', update: known.rev } : 'add');
+  } catch (e) {
+    /* quelqu'un d'autre a écrit entre-temps : on garde le plus récent, on copie l'autre */
+    const remote = await dbxDownJson('/boards/' + id + '.json');
+    if (remote && remote.updated > st.updated) { await dbxPullBoard(id, remote); return; }
+    if (remote) {
+      const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-');
+      await dbxUp('/conflits/' + id + '-' + stamp + '.json',
+        new Blob([JSON.stringify(remote)], { type: 'application/json' }));
+      toast(DT.conflict, 4000);
+    }
+    res = await dbxUp('/boards/' + id + '.json', blob);
+  }
+  meta[id] = { rev: res.rev, imgs: [...sent], pushed: st.updated };
+  dbxSetMeta(meta);
+  await dbxPushLibrary();
+}
+async function dbxPushLibrary() {
+  const list = library.boards.map(b => ({ id: b.id, name: b.name, updated: b.updated || 0 }));
+  await dbxUp('/library.json', new Blob([JSON.stringify({ v: 1, boards: list })], { type: 'application/json' }));
+}
+
+/* ---------- réception ---------- */
+async function dbxPullBoard(id, data) {
+  const st = data || await dbxDownJson('/boards/' + id + '.json');
+  if (!st || !Array.isArray(st.items)) return;
+  const target = boardMeta(id);
+  if (!target) createBoard(st.name || 'Board', id);
+  if (library.current !== id) await switchBoard(id);
+
+  for (const raw of st.items) {          /* les images manquantes, et elles seules */
+    if (raw.type !== 'img' || !raw.hash) continue;
+    try {
+      if (await dbGetImage(raw.id)) continue;
+    } catch (_) {}
+    try { await dbPutImage(raw.id, await dbxDown('/img/' + raw.hash)); } catch (_) {}
+  }
+  clearBoardDOM();
+  await loadBoardState({ v: 4, items: st.items, arrows: st.arrows, view: st.view, bg: st.bg });
+  const b = boardMeta(id);
+  if (b) { b.name = st.name || b.name; b.updated = st.updated || Date.now(); }
+  const meta = dbxMeta();
+  meta[id] = { ...(meta[id] || {}), pushed: st.updated };
+  dbxSetMeta(meta);
+  flushSave();
+}
+
+/* ---------- le chef d'orchestre ---------- */
+function dbxStatus(k) {
+  const dot = $('dbx-dot');
+  if (!dot) return;
+  dot.className = 'dbx-dot ' + (k || '');
+  dot.title = k === 'sync' ? DT.syncing : k === 'bad' ? DT.fail : DT.ok;
+}
+async function dbxSync(full) {
+  if (!dbxOn() || dbxBusy || !library) return;
+  if (!navigator.onLine) { dbxStatus('bad'); return; }
+  dbxBusy = true; dbxStatus('sync');
+  try {
+    if (full) {
+      const lib = await dbxDownJson('/library.json');
+      if (lib && Array.isArray(lib.boards)) {
+        for (const rb of lib.boards) {
+          const local = boardMeta(rb.id);
+          if (!local || (rb.updated || 0) > (local.updated || 0)) await dbxPullBoard(rb.id);
+        }
+      }
+    }
+    if (dbxDirty.size || full) { await dbxPushCurrent(); dbxDirty.clear(); }
+    dbxStatus('');
+  } catch (e) {
+    dbxStatus('bad');
+  } finally { dbxBusy = false; }
+}
+/* appelé après chaque enregistrement local */
+function dbxTouch() {
+  if (!dbxOn() || !library) return;
+  dbxDirty.add(library.current);
+  clearTimeout(dbxTimer);
+  dbxTimer = setTimeout(() => dbxSync(false), DBX_DELAY);
+}
+document.addEventListener('visibilitychange', () => { if (!document.hidden) dbxSync(true); });
+window.addEventListener('online', () => dbxSync(true));
+
+/* ---------- le panneau : trois lignes, pas plus ---------- */
+function dbxPanel() {
+  const bar = $('dbx');
+  bar.innerHTML = dbxOn()
+    ? `<span class="dhint">${DT.on}</span>
+       <button class="dbtn" data-db="now">${DT.now}</button>
+       <button class="dbtn quiet" data-db="off">${DT.off}</button>`
+    : `<button class="dbtn primary" data-db="on">${DT.connect}</button>`;
   closePopovers('dbx');
   bar.classList.add('open');
 }
-$('dbx').addEventListener('click', async e => {
+$('dbx').addEventListener('click', e => {
   const b = e.target.closest('[data-db]'); if (!b) return;
-  const act = b.dataset.db;
-  try {
-    if (act === 'on') { dbxConnect(); return; }
-    if (act === 'off') { dbxForget(); dbxPanel(); toast(DT.bye); return; }
-    if (act === 'menu') { dbxPanel(); return; }
-    if (act === 'push') {
-      closePopovers(); toast(DT.sending);
-      const { blob, name } = await boardBackup();
-      await dbxUpload(name, blob);
-      toast(DT.sent);
-      return;
-    }
-    if (act === 'list') {
-      const j = await dbxRpc('files/list_folder', { path: '' });
-      dbxPanel((j.entries || []).filter(x => x['.tag'] === 'file').sort((a, b) => (a.name > b.name ? 1 : -1)));
-      return;
-    }
-    if (act === 'pull') {
-      closePopovers(); toast(DT.getting);
-      const blob = await dbxDownload(b.dataset.p);
-      const name = b.dataset.p.split('/').pop();
-      await importBoard(new File([blob], name, { type: 'application/json' }));
-      return;
-    }
-  } catch (err) { toast(DT.fail); }
+  const a = b.dataset.db;
+  if (a === 'on') dbxConnect();
+  else if (a === 'off') { dbxForget(); dbxPanel(); dbxStatus(''); toast(DT.bye); }
+  else if (a === 'now') { closePopovers(); dbxSync(true); }
 });
 
-dbxReturn();
+(async () => {
+  const fresh = await dbxReturn();
+  if (dbxOn()) setTimeout(() => dbxSync(true), fresh ? 400 : 1500);
+})();

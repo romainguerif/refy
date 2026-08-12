@@ -37,7 +37,7 @@ try {
 const lang = (navigator.language || 'en').toLowerCase().startsWith('fr') ? 'fr' : 'en';
 const LOCALE = lang === 'fr' ? 'fr-FR' : 'en-GB';
 const I18N_FR = {
-  mgPose: 'Poser', mgBoard: 'Le board', mgFiles: 'Fichiers',
+  mgPose: 'Poser', mgMusic: 'Musique', mgBoard: 'Le board', mgFiles: 'Fichiers',
   mShape: 'Forme', mPomo: 'Pomodoro', mAlbum: 'Album', mDbx: 'Dropbox', mGrille: 'Grille de morceau',
   saveFull: 'Sauvegarde impossible (stockage plein ?)', imgFull: 'Image non sauvegardée (stockage plein ?)',
   badFormat: 'Format non pris en charge : ', cantImport: 'Impossible d\'importer ',
@@ -81,7 +81,7 @@ const I18N_FR = {
   selCount: n => `${n} sélectionné${n > 1 ? 's' : ''}`,
 };
 const I18N_EN = {
-  mgPose: 'Add', mgBoard: 'Board', mgFiles: 'Files',
+  mgPose: 'Add', mgMusic: 'Music', mgBoard: 'Board', mgFiles: 'Files',
   mShape: 'Shape', mPomo: 'Pomodoro', mAlbum: 'Album', mDbx: 'Dropbox', mGrille: 'Song plan',
   saveFull: 'Could not save (storage full?)', imgFull: 'Image not saved (storage full?)',
   badFormat: 'Unsupported format: ', cantImport: 'Could not import ',
@@ -224,7 +224,7 @@ function animateViewTo(tx, ty, ts) {
 }
 
 /* ============================== IndexedDB ============================== */
-const APP_V = 'v5.27';     /* affiche dans le diagnostic : sert a savoir quel code tourne */
+const APP_V = 'v5.29';     /* affiche dans le diagnostic : sert a savoir quel code tourne */
 let dbWhy = '';            /* raison precise du refus d'ouverture */
 let db = null;
 let saveBroken = '';
@@ -2104,15 +2104,41 @@ document.addEventListener('pointerdown', e => {
   closePopovers();
 }, true);
 
+/* menu ··· : un écran par famille, glissement latéral, hauteur animée */
+let morePane = 'root';
+function morePaneReset() {
+  const m = $('more');
+  m.style.height = '';
+  for (const p of m.querySelectorAll('.mpane')) {
+    p.classList.toggle('gone-r', p.dataset.pane !== 'root');
+    p.classList.remove('gone-l');
+  }
+  morePane = 'root';
+}
+function morePaneGo(next, dir) {
+  const m = $('more');
+  const cur = m.querySelector(`.mpane[data-pane="${morePane}"]`);
+  const nxt = m.querySelector(`.mpane[data-pane="${next}"]`);
+  if (!nxt || nxt === cur) return;
+  morePane = next;
+  m.style.height = m.offsetHeight + 'px';
+  cur.classList.add(dir > 0 ? 'gone-l' : 'gone-r');
+  nxt.classList.remove('gone-l', 'gone-r');
+  m.offsetHeight; // reflow : la hauteur de départ doit être posée avant la cible
+  m.style.height = (nxt.offsetHeight + 16) + 'px'; // 16 = padding haut + bas
+  setTimeout(() => { if (morePane === next) m.style.height = ''; }, 320);
+}
 $('btn-more').addEventListener('click', () => {
   const m = $('more');
   const wasOpen = m.classList.contains('open');
   closePopovers();
-  if (!wasOpen) m.classList.add('open');
+  if (!wasOpen) { morePaneReset(); m.classList.add('open'); }
 });
 $('more').addEventListener('click', e => {
   const b = e.target.closest('button');
   if (!b) return;
+  if (b.dataset.cat) { morePaneGo(b.dataset.cat, 1); return; }
+  if ('back' in b.dataset) { morePaneGo('root', -1); return; }
   closePopovers();
   const act = b.dataset.act;
   if (act === 'bg') openPopover('swatches');

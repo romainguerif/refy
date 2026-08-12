@@ -224,7 +224,7 @@ function animateViewTo(tx, ty, ts) {
 }
 
 /* ============================== IndexedDB ============================== */
-const APP_V = 'v5.26';     /* affiche dans le diagnostic : sert a savoir quel code tourne */
+const APP_V = 'v5.27';     /* affiche dans le diagnostic : sert a savoir quel code tourne */
 let dbWhy = '';            /* raison precise du refus d'ouverture */
 let db = null;
 let saveBroken = '';
@@ -3086,7 +3086,11 @@ boot();
 if ('serviceWorker' in navigator && location.protocol === 'https:') {
   addEventListener('load', async () => {
     let reg;
-    try { reg = await navigator.serviceWorker.register('sw.js'); } catch (_) { return; }
+    /* updateViaCache:'none' est indispensable : sans lui, le navigateur relit
+       sw.js depuis son cache HTTP (dix minutes ici) et conclut qu'il n'y a rien
+       de neuf. La verification devient alors une formalite sans effet. */
+    try { reg = await navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }); }
+    catch (_) { return; }
     const hadController = !!navigator.serviceWorker.controller;
     const check = () => { try { reg.update(); } catch (_) {} };
     check();

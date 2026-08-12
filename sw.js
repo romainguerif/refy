@@ -1,4 +1,4 @@
-const CACHE = 'refy-v30';
+const CACHE = 'refy-v31';
 const ASSETS = ['./', './index.html', './app.css', './app.js', './manifest.json', './icon-180.png', './icon-512.png'];
 const PDFJS = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/';
 
@@ -34,8 +34,11 @@ self.addEventListener('fetch', e => {
   if (!e.request.url.startsWith(self.location.origin)) return;
 
   // Réseau d'abord (pour récupérer les mises à jour), cache en secours (hors-ligne).
+  /* no-cache : on revalide toujours aupres du serveur. Sans ca, le cache HTTP
+     rendait l'ancien app.js pendant dix minutes, et un telephone qui demarre
+     sans reseau restait bloque sur la copie hors-ligne. */
   e.respondWith(
-    fetch(e.request)
+    fetch(e.request, { cache: 'no-cache' })
       .then(r => {
         // ne met en cache que les vraies réponses (pas les pages d'erreur ni les portails captifs)
         if (r.ok && r.type === 'basic') {

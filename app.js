@@ -218,7 +218,7 @@ function animateViewTo(tx, ty, ts) {
 }
 
 /* ============================== IndexedDB ============================== */
-const APP_V = 'v5.19';     /* affiche dans le diagnostic : sert a savoir quel code tourne */
+const APP_V = 'v5.20';     /* affiche dans le diagnostic : sert a savoir quel code tourne */
 let dbWhy = '';            /* raison precise du refus d'ouverture */
 let db = null;
 let saveBroken = '';
@@ -4069,6 +4069,9 @@ async function dbxConnect() {
   u.searchParams.set('code_challenge', challenge);
   u.searchParams.set('code_challenge_method', 'S256');
   u.searchParams.set('token_access_type', 'offline');
+  /* on demande explicitement les droits : si l'app ne les a pas, la page
+     d'autorisation le dit tout de suite au lieu de delivrer un jeton inutile */
+  u.searchParams.set('scope', 'files.content.write files.content.read files.metadata.read account_info.read');
   location.href = u.toString();
 }
 async function dbxToken(body) {
@@ -4077,7 +4080,7 @@ async function dbxToken(body) {
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({ client_id: DBX_KEY, ...body }).toString(),
   });
-  if (!r.ok) throw new Error('token');
+  if (!r.ok) throw new Error('Dropbox refuse le jeton : ' + (await r.text()).slice(0, 160));
   const j = await r.json();
   const cur = dbxLoad() || {};
   dbxSave({ access: j.access_token, refresh: j.refresh_token || cur.refresh,
@@ -4098,9 +4101,17 @@ async function dbxReturn() {
 }
 async function dbxAuth() {
   const t = dbxLoad();
-  if (!t) throw new Error('off');
+  if (!t || !t.refresh) throw new Error('Dropbox non connecte');
   if (t.access && Date.now() < t.exp) return t.access;
-  await dbxToken({ grant_type: 'refresh_token', refresh_token: t.refresh });
+  try {
+    await dbxToken({ grant_type: 'refresh_token', refresh_token: t.refresh });
+  } catch (e) {
+    /* renouvellement refuse : le lien est mort. On oublie le jeton pour que
+       le panneau repropose la connexion au lieu de rater en boucle. */
+    dbxForget();
+    dbxStatus('');
+    throw new Error('lien Dropbox expire, reconnecte-toi');
+  }
   return dbxLoad().access;
 }
 async function dbxRpc(path, arg) {
@@ -4178,6 +4189,7 @@ async function dbxPushCurrent() {
 
   /* les images d'abord : une seule fois chacune */
   const sent = new Set(known.imgs || []);
+  const sentAudio = new Set(known.auds || []);
   for (const it of items) {
     if (it.type !== 'img' || !it.hash || sent.has(it.hash)) continue;
     try {
@@ -4190,10 +4202,10 @@ async function dbxPushCurrent() {
   for (const it of items) {
     if (it.type !== 'grille') continue;
     for (const v of (it.plan.versions || [])) {
-      if (!v.audio || sent.has('a:' + v.audio.id)) continue;
+      if (!v.audio || sentAudio.has(v.audio.id)) continue;
       try {
         const b = await dbGetAudio(v.audio.id);
-        if (b) { await dbxUp('/audio/' + v.audio.id, b); sent.add('a:' + v.audio.id); }
+        if (b) { await dbxUp('/audio/' + v.audio.id, b); sentAudio.add(v.audio.id); }
       } catch (_) {}
     }
   }
@@ -4215,7 +4227,7 @@ async function dbxPushCurrent() {
     }
     res = await dbxUp('/boards/' + id + '.json', blob);
   }
-  meta[id] = { rev: res.rev, imgs: [...sent], pushed: st.updated };
+  meta[id] = { rev: res.rev, imgs: [...sent], auds: [...sentAudio], pushed: st.updated };
   dbxSetMeta(meta);
   await dbxPushLibrary();
 }
@@ -4258,7 +4270,19 @@ async function dbxPullBoard(id, data) {
 }
 
 /* ---------- le chef d'orchestre ---------- */
+/* Un bandeau qu'on ne peut pas rater, refermable d'un doigt. */
+function dbxAlarm(msg) {
+  let el = document.getElementById('dbx-alarm');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'dbx-alarm';
+    el.addEventListener('click', () => el.remove());
+    document.body.appendChild(el);
+  }
+  el.textContent = 'Dropbox — ' + msg;
+}
 function dbxStatus(k) {
+  if (!k) { const a = document.getElementById('dbx-alarm'); if (a) a.remove(); }
   const dot = $('dbx-dot');
   if (!dot) return;
   dot.className = 'dbx-dot ' + (k || '');
@@ -4283,8 +4307,9 @@ async function dbxSync(full) {
     dbxStatus('');
   } catch (e) {
     /* on garde le debut du message : Dropbox renvoie un texte parlant */
-    dbxWhy = String((e && e.message) || e).replace(/\s+/g, ' ').slice(0, 120);
+    dbxWhy = String((e && e.message) || e).replace(/\s+/g, ' ').slice(0, 160);
     dbxStatus('bad');
+    dbxAlarm(dbxWhy);
   } finally { dbxBusy = false; }
 }
 /* appelé après chaque enregistrement local */

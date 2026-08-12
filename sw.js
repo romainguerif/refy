@@ -1,4 +1,4 @@
-const CACHE = 'refy-v23';
+const CACHE = 'refy-v24';
 const ASSETS = ['./', './index.html', './app.css', './app.js', './manifest.json', './icon-180.png', './icon-512.png'];
 const PDFJS = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/';
 

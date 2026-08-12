@@ -838,3 +838,9 @@ body.dropping #drop-overlay { display:flex; }
 .alplay { width:1.15em; height:1.15em; border-color:var(--ink-soft); color:var(--ink); }
 .alplay::before { border-left-width:.36em; border-top-width:.26em; border-bottom-width:.26em; }
 .alplay.off { border-style:dashed; }
+
+#dbx-alarm {
+  position:fixed; left:0; right:0; top:0; z-index:399; padding:.55rem 1rem;
+  padding-top:calc(.55rem + env(safe-area-inset-top));
+  background:#8a5a20; color:#fff; font-size:.82rem; text-align:center; line-height:1.35; cursor:pointer;
+}

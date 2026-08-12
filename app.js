@@ -218,7 +218,7 @@ function animateViewTo(tx, ty, ts) {
 }
 
 /* ============================== IndexedDB ============================== */
-const APP_V = 'v5.17';     /* affiche dans le diagnostic : sert a savoir quel code tourne */
+const APP_V = 'v5.19';     /* affiche dans le diagnostic : sert a savoir quel code tourne */
 let dbWhy = '';            /* raison precise du refus d'ouverture */
 let db = null;
 let saveBroken = '';
@@ -3036,8 +3036,28 @@ async function boot() {
 }
 boot();
 
+/* Une app installée démarre sur la réserve du service worker et ne va chercher
+   du neuf que lorsqu'elle y pense. Résultat : elle peut tourner des jours sur du
+   code périmé pendant que le navigateur, lui, est à jour — d'où des bugs qui
+   n'existent qu'une fois installée. On force donc la vérification à chaque
+   ouverture, et on recharge une seule fois quand le nouveau code prend la main. */
 if ('serviceWorker' in navigator && location.protocol === 'https:') {
-  addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
+  addEventListener('load', async () => {
+    let reg;
+    try { reg = await navigator.serviceWorker.register('sw.js'); } catch (_) { return; }
+    const hadController = !!navigator.serviceWorker.controller;
+    const check = () => { try { reg.update(); } catch (_) {} };
+    check();
+    setInterval(check, 30 * 60 * 1000);
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) check(); });
+    let reloading = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (reloading || !hadController) return;   /* première installation : rien à recharger */
+      reloading = true;
+      flushSave();                               /* le travail en cours part avec */
+      location.reload();
+    });
+  });
 }
 
 /* ============================== grille de morceau ==============================

@@ -37,7 +37,7 @@ try {
 const lang = (navigator.language || 'en').toLowerCase().startsWith('fr') ? 'fr' : 'en';
 const LOCALE = lang === 'fr' ? 'fr-FR' : 'en-GB';
 const I18N_FR = {
-  mgPose: 'Poser', mgBoard: 'Le board', mgFiles: 'Fichiers',
+  mgPose: 'Poser', mgMusic: 'Musique', mgBoard: 'Le board', mgFiles: 'Fichiers',
   mShape: 'Forme', mPomo: 'Pomodoro', mAlbum: 'Album', mDbx: 'Dropbox', mGrille: 'Grille de morceau',
   saveFull: 'Sauvegarde impossible (stockage plein ?)', imgFull: 'Image non sauvegardée (stockage plein ?)',
   badFormat: 'Format non pris en charge : ', cantImport: 'Impossible d\'importer ',
@@ -81,7 +81,7 @@ const I18N_FR = {
   selCount: n => `${n} sélectionné${n > 1 ? 's' : ''}`,
 };
 const I18N_EN = {
-  mgPose: 'Add', mgBoard: 'Board', mgFiles: 'Files',
+  mgPose: 'Add', mgMusic: 'Music', mgBoard: 'Board', mgFiles: 'Files',
   mShape: 'Shape', mPomo: 'Pomodoro', mAlbum: 'Album', mDbx: 'Dropbox', mGrille: 'Song plan',
   saveFull: 'Could not save (storage full?)', imgFull: 'Image not saved (storage full?)',
   badFormat: 'Unsupported format: ', cantImport: 'Could not import ',
@@ -224,7 +224,7 @@ function animateViewTo(tx, ty, ts) {
 }
 
 /* ============================== IndexedDB ============================== */
-const APP_V = 'v5.27';     /* affiche dans le diagnostic : sert a savoir quel code tourne */
+const APP_V = 'v5.28';     /* affiche dans le diagnostic : sert a savoir quel code tourne */
 let dbWhy = '';            /* raison precise du refus d'ouverture */
 let db = null;
 let saveBroken = '';

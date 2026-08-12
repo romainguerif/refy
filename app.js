@@ -58,6 +58,8 @@ const I18N_FR = {
   gAdded: n => `Grille « ${n} » posee — double-tape pour l\'ouvrir`,
   storageDown: 'Stockage local injoignable : rien ne sera enregistré',
   fragile: 'Ce navigateur refuse le stockage permanent : il peut tout effacer à la fermeture',
+  nowSafe: 'Stockage permanent accordé — le navigateur ne peut plus effacer',
+  stillFragile: 'Refusé. Mets le site en favori, puis réessaie',
   renameTitle: 'Renommer', deleteTitle: 'Supprimer', linkTitle: 'Poser un lien sur le board actuel',
   linkPosed: n => `Lien vers « ${n} » posé — double-tape pour l'ouvrir`,
   namePrompt: 'Nom du board', delConfirm: n => `Supprimer « ${n} » et tout son contenu ?`,
@@ -100,6 +102,8 @@ const I18N_EN = {
   gAdded: n => `Plan “${n}” dropped — double-tap to open it`,
   storageDown: 'Local storage unreachable: nothing will be saved',
   fragile: 'This browser refuses persistent storage: it may erase everything on close',
+  nowSafe: 'Persistent storage granted — the browser can no longer erase it',
+  stillFragile: 'Refused. Bookmark the site, then try again',
   renameTitle: 'Rename', deleteTitle: 'Delete', linkTitle: 'Drop a link on the current board',
   linkPosed: n => `Link to “${n}” added — double-tap to open it`,
   namePrompt: 'Board name', delConfirm: n => `Delete “${n}” and all its content?`,
@@ -220,7 +224,7 @@ function animateViewTo(tx, ty, ts) {
 }
 
 /* ============================== IndexedDB ============================== */
-const APP_V = 'v5.22';     /* affiche dans le diagnostic : sert a savoir quel code tourne */
+const APP_V = 'v5.23';     /* affiche dans le diagnostic : sert a savoir quel code tourne */
 let dbWhy = '';            /* raison precise du refus d'ouverture */
 let db = null;
 let saveBroken = '';
@@ -3059,7 +3063,18 @@ async function boot() {
     dbPutMeta('temoin', w).catch(() => {});
     try { localStorage.setItem('refy.temoin', JSON.stringify(w)); } catch (_) {}
   } catch (_) {}
-  if (storageFragile) toast(tr('fragile'), 9000);
+  if (storageFragile) {
+    toast(tr('fragile'), 9000);
+    /* nouvelle tentative au premier geste : Chrome juge sur la frequentation,
+       et une demande pendant une interaction a plus de chances d'aboutir */
+    const retry = async () => {
+      try {
+        if (await navigator.storage.persist()) { storageFragile = false; toast(tr('nowSafe'), 4000); }
+      } catch (_) {}
+      removeEventListener('pointerup', retry);
+    };
+    addEventListener('pointerup', retry, { once: true });
+  }
 }
 boot();
 
@@ -4056,7 +4071,7 @@ const DT = lang === 'fr' ? {
   on: 'Synchro active', syncing: 'Synchro…', ok: 'À jour', fail: 'Synchro en échec',
   offline: 'Hors ligne — reprise au retour du réseau', bye: 'Dropbox déconnecté',
   store: 'stockage', kept: 'permanent', evictable: 'EFFAÇABLE PAR LE SYSTÈME',
-  used: 'utilisés', gc: 'Faire le ménage', cleaning: 'Ménage en cours…',
+  protect: 'Protéger de l\'effacement', used: 'utilisés', gc: 'Faire le ménage', cleaning: 'Ménage en cours…',
   clean: 'Rien à retirer, tout sert', cleaned: (n, s) => `${n} image${n > 1 ? 's' : ''} retirée${n > 1 ? 's' : ''} — ${s} libérés`,
   conflict: 'Deux versions : la plus récente est gardée, l\u2019autre est copiée dans Dropbox',
 } : {
@@ -4064,7 +4079,7 @@ const DT = lang === 'fr' ? {
   on: 'Sync on', syncing: 'Syncing…', ok: 'Up to date', fail: 'Sync failed',
   offline: 'Offline — will resume', bye: 'Dropbox disconnected',
   store: 'storage', kept: 'persistent', evictable: 'CAN BE EVICTED',
-  used: 'used', gc: 'Clean up', cleaning: 'Cleaning…',
+  protect: 'Protect from erasure', used: 'used', gc: 'Clean up', cleaning: 'Cleaning…',
   clean: 'Nothing to remove', cleaned: (n, s) => `${n} image${n > 1 ? 's' : ''} removed — ${s} freed`,
   conflict: 'Two versions: newest kept, the other copied to Dropbox',
 };
@@ -4462,11 +4477,13 @@ async function dbxPanel() {
     <span class="dhint diag">${st.version}</span>`;
   bar.innerHTML = gauge + (dbxOn()
     ? (dbxWhy ? `<span class="dhint bad">${DT.fail} — ${esc(dbxWhy)}</span>` : `<span class="dhint">${DT.on}</span>`)
+    + (st.persisted ? '' : `<button class="dbtn" data-db="protect">${DT.protect}</button>`)
     + `<span class="dhint" style="display:none"></span>
        <button class="dbtn" data-db="now">${DT.now}</button>
        <button class="dbtn" data-db="gc">${DT.gc}</button>
        <button class="dbtn quiet" data-db="off">${DT.off}</button>`
-    : `<button class="dbtn primary" data-db="on">${DT.connect}</button>`);
+    : `<button class="dbtn primary" data-db="on">${DT.connect}</button>`
+      + (st.persisted ? '' : `<button class="dbtn" data-db="protect">${DT.protect}</button>`));
   closePopovers('dbx');
   bar.classList.add('open');
 }
@@ -4475,6 +4492,18 @@ $('dbx').addEventListener('click', e => {
   const a = b.dataset.db;
   if (a === 'on') dbxConnect();
   else if (a === 'off') { dbxForget(); dbxPanel(); dbxStatus(''); toast(DT.bye); }
+  else if (a === 'protect') {
+    closePopovers();
+    /* Chrome accorde le stockage permanent aux sites autorises a notifier.
+       C'est le seul levier fiable a la main de l'utilisateur. */
+    (async () => {
+      try { await Notification.requestPermission(); } catch (_) {}
+      let ok = false;
+      try { ok = await navigator.storage.persist(); } catch (_) {}
+      storageFragile = !ok;
+      toast(ok ? tr('nowSafe') : tr('stillFragile'), 6000);
+    })();
+  }
   else if (a === 'now') {
     closePopovers();
     dbxSync(true).then(() => toast(dbxWhy ? DT.fail + ' — ' + dbxWhy : DT.ok, dbxWhy ? 9000 : 2500));

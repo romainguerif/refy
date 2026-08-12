@@ -2743,6 +2743,13 @@ async function importBoard(file) {
     if (added) saveCalendar();
   }
   if (typeof data.bg === 'string' && /^#[0-9a-f]{6}$/i.test(data.bg)) { bg = data.bg; applyBg(); }
+  /* les flèches voyagent avec la sauvegarde : on les rebranche sur les
+     éléments réellement importés, et on jette celles qui pendent dans le vide */
+  const liveIds = new Set(items.map(i => i.id));
+  arrows = savedArrows
+    .filter(a => a && liveIds.has(a.from) && liveIds.has(a.to) && a.from !== a.to)
+    .map(a => ({ id: uid(), from: a.from, to: a.to, color: SHAPE_KEYS.includes(a.color) ? a.color : 'graphite' }));
+  drawArrows();
   ready = true;
   if (data.view && isFinite(data.view.s) && data.view.s > 0) {
     view.x = +data.view.x || 0; view.y = +data.view.y || 0; view.s = clamp(+data.view.s, MIN_S, MAX_S);

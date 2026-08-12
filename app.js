@@ -57,6 +57,7 @@ const I18N_FR = {
   gBadPlan: 'Ce fichier n\'est pas une grille de morceau',
   gAdded: n => `Grille « ${n} » posee — double-tape pour l\'ouvrir`,
   storageDown: 'Stockage local injoignable : rien ne sera enregistré',
+  fragile: 'Ce navigateur refuse le stockage permanent : il peut tout effacer à la fermeture',
   renameTitle: 'Renommer', deleteTitle: 'Supprimer', linkTitle: 'Poser un lien sur le board actuel',
   linkPosed: n => `Lien vers « ${n} » posé — double-tape pour l'ouvrir`,
   namePrompt: 'Nom du board', delConfirm: n => `Supprimer « ${n} » et tout son contenu ?`,
@@ -98,6 +99,7 @@ const I18N_EN = {
   gBadPlan: 'This file is not a song plan',
   gAdded: n => `Plan “${n}” dropped — double-tap to open it`,
   storageDown: 'Local storage unreachable: nothing will be saved',
+  fragile: 'This browser refuses persistent storage: it may erase everything on close',
   renameTitle: 'Rename', deleteTitle: 'Delete', linkTitle: 'Drop a link on the current board',
   linkPosed: n => `Link to “${n}” added — double-tap to open it`,
   namePrompt: 'Board name', delConfirm: n => `Delete “${n}” and all its content?`,
@@ -218,10 +220,11 @@ function animateViewTo(tx, ty, ts) {
 }
 
 /* ============================== IndexedDB ============================== */
-const APP_V = 'v5.20';     /* affiche dans le diagnostic : sert a savoir quel code tourne */
+const APP_V = 'v5.21';     /* affiche dans le diagnostic : sert a savoir quel code tourne */
 let dbWhy = '';            /* raison precise du refus d'ouverture */
 let db = null;
 let saveBroken = '';
+let storageFragile = false;   /* le navigateur se reserve le droit de tout effacer */
 let bootError = '';        /* le stockage n'a pas repondu : on ne sauvegarde plus rien */
 /* Panne de stockage : on le dit fort, et on empêche toute écriture qui
    remplacerait les vrais boards par du vide. */
@@ -2974,7 +2977,15 @@ async function boot() {
   applyI18n();
   db = await openDB();
   if (!db) bootError = dbWhy || 'base indisponible';
-  if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
+  /* Sans permanence, le navigateur peut vider le site quand bon lui semble :
+     c'est la seule explication quand les boards ET la connexion partent ensemble. */
+  try {
+    if (navigator.storage && navigator.storage.persist) {
+      const already = navigator.storage.persisted ? await navigator.storage.persisted() : false;
+      const granted = already || await navigator.storage.persist();
+      if (!granted) storageFragile = true;
+    }
+  } catch (_) {}
   applyView();
   applyBg();
   try {
@@ -3033,6 +3044,7 @@ async function boot() {
   renderLibrary();
   updateHint();
   ready = true;
+  if (storageFragile) toast(tr('fragile'), 9000);
 }
 boot();
 
@@ -4080,7 +4092,11 @@ async function dbxToken(body) {
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({ client_id: DBX_KEY, ...body }).toString(),
   });
-  if (!r.ok) throw new Error('Dropbox refuse le jeton : ' + (await r.text()).slice(0, 160));
+  if (!r.ok) {
+    const e = new Error('Dropbox refuse le jeton : ' + (await r.text()).slice(0, 160));
+    e.rejected = r.status === 400 || r.status === 401;   /* refus explicite, pas une panne reseau */
+    throw e;
+  }
   const j = await r.json();
   const cur = dbxLoad() || {};
   dbxSave({ access: j.access_token, refresh: j.refresh_token || cur.refresh,
@@ -4106,11 +4122,14 @@ async function dbxAuth() {
   try {
     await dbxToken({ grant_type: 'refresh_token', refresh_token: t.refresh });
   } catch (e) {
-    /* renouvellement refuse : le lien est mort. On oublie le jeton pour que
-       le panneau repropose la connexion au lieu de rater en boucle. */
-    dbxForget();
-    dbxStatus('');
-    throw new Error('lien Dropbox expire, reconnecte-toi');
+    /* Un reseau absent au demarrage n'est PAS un lien mort. On n'oublie le
+       jeton que si Dropbox l'a explicitement refuse : sinon on retentera. */
+    if (e && e.rejected) {
+      dbxForget();
+      dbxStatus('');
+      throw new Error('lien Dropbox expire, reconnecte-toi');
+    }
+    throw new Error('Dropbox injoignable, nouvel essai plus tard');
   }
   return dbxLoad().access;
 }
@@ -4441,7 +4460,10 @@ $('dbx').addEventListener('click', e => {
 
 (async () => {
   const fresh = await dbxReturn();
-  if (dbxOn()) setTimeout(() => dbxSync(true), fresh ? 400 : 1500);
+  if (!dbxOn()) return;
+  const kick = () => dbxSync(true);
+  setTimeout(kick, fresh ? 400 : 3000);        /* on laisse le reseau se lever */
+  addEventListener('online', kick);
 })();
 
 

@@ -154,7 +154,7 @@ const $ = id => document.getElementById(id);
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 const uid = () => (crypto.randomUUID ? crypto.randomUUID() : 'id-' + Date.now() + '-' + Math.random().toString(36).slice(2));
 const toWorld = (sx, sy) => ({ x: (sx - view.x) / view.s, y: (sy - view.y) / view.s });
-const MEASURED = { text: 1, todo: 1, palette: 1, link: 1, grille: 1 }; // hauteur mesurée dans le DOM
+const MEASURED = { text: 1, todo: 1, palette: 1, link: 1, grille: 1, pomo: 1, shape: 1 }; // hauteur mesurée dans le DOM
 const itemH = it => MEASURED[it.type] ? (it.el ? it.el.offsetHeight : it.w / 2) : it.w / it.ar;
 const itemCenter = it => ({ x: it.x + it.w / 2, y: it.y + itemH(it) / 2 });
 const HALF_PI = Math.PI / 2;
@@ -279,6 +279,9 @@ function serializeItem(it) {
   if (it.type === 'todo') return { ...base, size: it.size, entries: it.entries.map(e => ({ t: e.t, done: !!e.done })) };
   if (it.type === 'palette') return { ...base, colors: it.colors };
   if (it.type === 'link') return { ...base, target: it.target, name: it.name };
+  if (it.type === 'pomo') return { ...base, size: it.size,
+    pomo: { dur: it.pomo.dur, left: Math.round(pomoLeft(it.pomo)), done: it.pomo.done, running: it.pomo.running, endAt: it.pomo.endAt } };
+  if (it.type === 'shape') return { ...base, size: it.size, form: it.form, color: it.color, fill: it.fill, text: it.text };
   if (it.type === 'grille') return { ...base, size: it.size, plan: it.plan };
   return base;
 }
@@ -287,6 +290,7 @@ function saveState() {
   const state = {
     v: 4, view: { x: view.x, y: view.y, s: view.s }, locked, bg,
     items: items.map(serializeItem),
+    arrows: arrows.map(a => ({ id: a.id, from: a.from, to: a.to, color: a.color })),
   };
   const b = library.boards.find(x => x.id === library.current);
   if (b) { b.updated = Date.now(); b.count = items.length; }
@@ -370,11 +374,17 @@ function makeItemEl(it) {
   } else if (it.type === 'grille') {
     el.innerHTML = '<span class="gname"></span><span class="gmeta"></span>'
       + '<span class="gstrip"></span><span class="gspark"></span>';
+  } else if (it.type === 'pomo') {
+    el.innerHTML = pomoMarkup();
+  } else if (it.type === 'shape') {
+    el.innerHTML = '<span class="tx"></span>';
   }
   addHandles(el);
   if (it.type === 'todo') updateTodoDOM(it, el);
   if (it.type === 'link') updateLinkDOM(it, el);
   if (it.type === 'grille') updateGrilleDOM(it, el);
+  if (it.type === 'pomo') setTimeout(() => { updatePomoDOM(it); pomoSync(); }, 0);
+  if (it.type === 'shape') updateShapeDOM(it, el);
   return el;
 }
 
@@ -406,6 +416,7 @@ function updateLinkDOM(it, el) {
   root.classList.toggle('dead', !b);
 }
 function renderItem(it) {
+  queueArrows();
   it.el.style.transform = `translate(${it.x}px, ${it.y}px) rotate(${it.rot}rad)`;
   it.el.style.width = it.w + 'px';
   if (it.type === 'img') {
@@ -416,7 +427,7 @@ function renderItem(it) {
     tx.style.fontSize = it.size + 'px';
     tx.style.color = it.color;
     tx.classList.toggle('serif', !!it.serif);
-  } else if (it.type === 'todo' || it.type === 'palette' || it.type === 'link' || it.type === 'grille') {
+  } else if (it.type === 'todo' || it.type === 'palette' || it.type === 'link' || it.type === 'grille' || it.type === 'pomo' || it.type === 'shape') {
     it.el.style.fontSize = (it.size || it.w / 14) + 'px';
   }
 }
@@ -447,6 +458,7 @@ function refreshSelClasses() {
   document.body.classList.toggle('multi-sel', multi.size > 1);
 }
 function select(it) {
+  if (typeof syncShapeBar === 'function') setTimeout(() => syncShapeBar(it), 0);
   for (const m of multi) m.el.classList.remove('selected');
   multi.clear();
   selected = it || null;
@@ -474,6 +486,7 @@ function selectAll() {
   refreshSelClasses();
 }
 function removeItem(it, instant) {
+  removeArrowsOf(it.id);
   if (editingText === it) commitTextEdit();
   if (editingTodo && editingTodo.it === it) commitTodoEdit();
   if (multi.has(it)) {
@@ -867,12 +880,38 @@ function itemBBox(it) {
   const bw = it.w * cos + h * sin, bh = it.w * sin + h * cos;
   return { x1: c.x - bw / 2, y1: c.y - bh / 2, x2: c.x + bw / 2, y2: c.y + bh / 2, bw, bh };
 }
+/* Regroupe les traits qui se touchent presque : deux traits dont les boites,
+   dilatees d'une marge, se recouvrent appartiennent au meme dessin. */
+function clusterStrokes(list) {
+  if (list.length < 2) return list.length ? [list] : [];
+  const bb = list.map(itemBBox);
+  const sizes = list.map((_, i) => Math.max(bb[i].bw, bb[i].bh)).sort((a, b) => a - b);
+  const med = sizes[Math.floor(sizes.length / 2)] || 1;
+  const m = Math.max(med * 0.7, 8);
+  const parent = list.map((_, i) => i);
+  const find = i => { while (parent[i] !== i) { parent[i] = parent[parent[i]]; i = parent[i]; } return i; };
+  for (let i = 0; i < list.length; i++) {
+    for (let j = i + 1; j < list.length; j++) {
+      const a = bb[i], b = bb[j];
+      const near = a.x1 - m < b.x2 && b.x1 - m < a.x2 && a.y1 - m < b.y2 && b.y1 - m < a.y2;
+      if (near) parent[find(i)] = find(j);
+    }
+  }
+  const groups = new Map();
+  list.forEach((it, i) => {
+    const r = find(i);
+    if (!groups.has(r)) groups.set(r, []);
+    groups.get(r).push(it);
+  });
+  return [...groups.values()];
+}
+
 function arrangeBoard() {
   if (items.length < 2) return;
   commitTextEdit();
   commitTodoEdit();
   // Les annotations (traits, textes) qui recouvrent un élément suivent cet élément.
-  const SOLID = { img: 1, todo: 1, palette: 1, link: 1 };
+  const SOLID = { img: 1, todo: 1, palette: 1, link: 1, grille: 1, pomo: 1, shape: 1 };
   const hosts = items.filter(i => SOLID[i.type]);
   const attached = new Map(); // annotation -> hôte
   for (const it of items) {
@@ -889,10 +928,27 @@ function arrangeBoard() {
     }
     if (best && bestCover >= 0.45) attached.set(it, best);
   }
-  const packed = items.filter(i => !attached.has(i));
-  const boxes = packed.map(it => {
-    const bb = itemBBox(it);
-    return { it, bw: bb.bw, bh: bb.bh };
+  /* Une ecriture a la main, c'est vingt traits separes : ranges un par un ils
+     partiraient en morceaux. On regroupe donc les traits voisins en un seul bloc. */
+  const loose = items.filter(i => !attached.has(i) && i.type === 'stroke');
+  const clusters = clusterStrokes(loose);
+  const inCluster = new Map();
+  for (const c of clusters) for (const it of c) inCluster.set(it, c);
+
+  const packed = [];
+  const seen = new Set();
+  for (const it of items) {
+    if (attached.has(it)) continue;
+    const c = inCluster.get(it);
+    if (!c) { packed.push([it]); continue; }
+    if (seen.has(c)) continue;
+    seen.add(c); packed.push(c);
+  }
+  const boxes = packed.map(group => {
+    const bs = group.map(itemBBox);
+    const x1 = Math.min(...bs.map(b => b.x1)), y1 = Math.min(...bs.map(b => b.y1));
+    const x2 = Math.max(...bs.map(b => b.x2)), y2 = Math.max(...bs.map(b => b.y2));
+    return { group, it: group[0], bw: x2 - x1, bh: y2 - y1, cx: (x1 + x2) / 2, cy: (y1 + y2) / 2 };
   });
   const gap = 0.06 * boxes.reduce((s, b) => s + b.bw, 0) / boxes.length;
   const area = boxes.reduce((s, b) => s + (b.bw + gap) * (b.bh + gap), 0);
@@ -908,13 +964,14 @@ function arrangeBoard() {
   }
   const deltas = new Map();
   for (const b of sorted) {
-    const c = itemCenter(b.it);
-    const dx = b.nx - c.x, dy = b.ny - c.y;
-    deltas.set(b.it, [dx, dy]);
-    b.it.x += dx;
-    b.it.y += dy;
-    b.it.el.classList.add('arranging');
-    renderItem(b.it);
+    const dx = b.nx - b.cx, dy = b.ny - b.cy;
+    for (const it of b.group) {
+      deltas.set(it, [dx, dy]);
+      it.x += dx;
+      it.y += dy;
+      it.el.classList.add('arranging');
+      renderItem(it);
+    }
   }
   for (const [it, host] of attached) {
     const d = deltas.get(host) || [0, 0];
@@ -1286,7 +1343,7 @@ function setEditable(el) {
   if (el.contentEditable !== 'plaintext-only') el.contentEditable = 'true';
 }
 function editText(it) {
-  if (locked || it.type !== 'text') return;
+  if (locked || (it.type !== 'text' && it.type !== 'shape')) return;
   commitTextEdit();
   commitTodoEdit();
   editingText = it;
@@ -1310,7 +1367,7 @@ function commitTextEdit() {
   it.el.classList.remove('editing');
   it.text = tx.innerText.replace(/ /g, ' ').trimEnd();
   tx.textContent = it.text;
-  if (!it.text.trim()) { removeItem(it, true); return; }
+  if (!it.text.trim() && it.type === 'text') { removeItem(it, true); return; }
   scheduleSave();
 }
 
@@ -1584,6 +1641,13 @@ vp.addEventListener('pointerdown', e => {
       }
       // s'il existe déjà une sélection ailleurs, on attend de savoir si c'est un tap
       // (remplace), un glisser (remplace) ou un appui long (ajoute au groupe)
+      if (linkFrom && linkFrom !== it) {
+        addArrow(linkFrom, it);
+        linkFrom = null;
+        toast(ST.linked);
+        select(it);
+        return;
+      }
       const deferSelect = multi.size >= 1 && !multi.has(it) ? it : null;
       if (!deferSelect) { select(it); bringToFront(it); }
       // Alt+glisser : la copie n'est créée qu'au début du vrai glisser (pas au simple clic)
@@ -1904,7 +1968,7 @@ $('btn-text').addEventListener('click', () => {
 });
 
 /* ============================== popovers ============================== */
-const POPOVERS = ['more', 'swatches', 'penbar', 'adjust'];
+const POPOVERS = ['more', 'swatches', 'penbar', 'adjust', 'shapebar'];
 function openPopover(id) {
   for (const p of POPOVERS) $(p).classList.toggle('open', p === id);
 }
@@ -1946,7 +2010,14 @@ $('more').addEventListener('click', e => {
     renderItem(it);
     editTodoRow(it, 0);
   }
-  else if (act === 'grille') $('file-plan').click();
+  else if (act === 'shape') { const it = addShapeItem(); select(it); syncShapeBar(it); scheduleSave(); }
+  else if (act === 'pomo') { const it = addPomoItem(); select(it); scheduleSave(); }
+  else if (act === 'grille') {
+    const it = addGrilleItem(newPlan());
+    select(it); scheduleSave();
+    openGrille(it);
+    gview.edit = true; renderGrille();
+  }
   else if (act === 'help') $('help').classList.remove('hidden');
 });
 $('btn-adj').addEventListener('click', () => {
@@ -2176,6 +2247,8 @@ function clearBoardDOM() {
     if (it._edgeUrl) URL.revokeObjectURL(it._edgeUrl);
   }
   items = [];
+  arrows = []; selectedArrow = null; linkFrom = null;
+  if (document.getElementById('arrows')) document.getElementById('arrows').innerHTML = '';
   updateHint();
 }
 
@@ -2224,6 +2297,18 @@ async function loadBoardState(state) {
             rot: isFinite(+raw.rot) ? +raw.rot : 0,
             colors: raw.colors.filter(c => /^#[0-9a-f]{6}$/i.test(c)).slice(0, 8),
           });
+        } else if (type === 'pomo') {
+          addItem({
+            id: raw.id || uid(), type: 'pomo', x: raw.x, y: raw.y, w: raw.w,
+            rot: isFinite(+raw.rot) ? +raw.rot : 0, size: +raw.size || 15,
+            pomo: normPomo(raw.pomo),
+          });
+        } else if (type === 'shape') {
+          addItem({
+            id: raw.id || uid(), type: 'shape', x: raw.x, y: raw.y, w: raw.w,
+            rot: isFinite(+raw.rot) ? +raw.rot : 0, size: +raw.size || 16,
+            ...normShape(raw),
+          });
         } else if (type === 'grille' && isPlan(raw.plan)) {
           addItem({
             id: raw.id || uid(), type: 'grille', x: raw.x, y: raw.y, w: raw.w,
@@ -2240,6 +2325,15 @@ async function loadBoardState(state) {
       } catch (_) {}
     }
   }
+  arrows = [];
+  if (state && Array.isArray(state.arrows)) {
+    const ids = new Set(items.map(i => i.id));
+    arrows = state.arrows
+      .filter(a => a && ids.has(a.from) && ids.has(a.to) && a.from !== a.to)
+      .map(a => ({ id: a.id || uid(), from: a.from, to: a.to, color: SHAPE_KEYS.includes(a.color) ? a.color : 'ink' }));
+  }
+  selectedArrow = null; linkFrom = null;
+  drawArrows();
   if (state && state.view && isFinite(state.view.s) && state.view.s > 0) {
     view.x = +state.view.x || 0; view.y = +state.view.y || 0; view.s = clamp(+state.view.s, MIN_S, MAX_S);
   } else {
@@ -2797,7 +2891,7 @@ const GT = lang === 'fr' ? {
   title: 'Titre', bpm: 'BPM', bars: 'Mesures', phrase: 'Phrase', notes: 'Notes',
   sections: 'Sections', lanes: 'Pistes', marks: 'Repères', zones: 'Zones', energy: 'Énergie',
   addSec: 'Ajouter une section', addLane: 'Ajouter une piste', addClip: 'clip',
-  addMark: 'Ajouter un repère', addZone: 'Ajouter une zone', addPt: 'Ajouter un point',
+  import: 'Importer', addMark: 'Ajouter un repère', addZone: 'Ajouter une zone', addPt: 'Ajouter un point',
   name: 'nom', label: 'libellé', from: 'de', to: 'à', bar: 'mesure', level: 'niveau',
   none: 'plein', fin: 'entrée', fout: 'sortie', fboth: 'entrée + sortie', fgrow: 'croissant',
   accent: 'accent', del: 'Supprimer', edit: 'Éditer', done: 'Terminé',
@@ -2806,12 +2900,23 @@ const GT = lang === 'fr' ? {
   title: 'Title', bpm: 'BPM', bars: 'Bars', phrase: 'Phrase', notes: 'Notes',
   sections: 'Sections', lanes: 'Lanes', marks: 'Markers', zones: 'Zones', energy: 'Energy',
   addSec: 'Add a section', addLane: 'Add a lane', addClip: 'clip',
-  addMark: 'Add a marker', addZone: 'Add a zone', addPt: 'Add a point',
+  import: 'Import', addMark: 'Add a marker', addZone: 'Add a zone', addPt: 'Add a point',
   name: 'name', label: 'label', from: 'from', to: 'to', bar: 'bar', level: 'level',
   none: 'full', fin: 'fade in', fout: 'fade out', fboth: 'in + out', fgrow: 'grow',
   accent: 'accent', del: 'Delete', edit: 'Edit', done: 'Done',
   perBar: n => `1 bar = ${n} s`, empty: 'Nothing yet',
 };
+
+/* une grille vierge : de quoi commencer a taper tout de suite */
+function newPlan() {
+  return {
+    title: lang === 'fr' ? 'Nouveau morceau' : 'New track',
+    bpm: 120, meter: [4, 4], bars: 64, phrase: 16,
+    sections: [{ bar: 1, name: 'Intro' }],
+    lanes: [], energy: [{ bar: 1, v: .2 }, { bar: 64, v: .8 }],
+    markers: [], zones: [], history: [],
+  };
+}
 
 function isPlan(o) {
   return !!o && typeof o === 'object' && !Array.isArray(o)
@@ -3080,7 +3185,8 @@ function renderGrille() {
         <button data-mode="liste" class="${gview.mode === 'liste' ? 'on' : ''}">${tr('gList')}</button>
       </span>`}
       ${!gview.edit && gview.mode === 'grille' ? [1, 2, 4].map(z => `<button class="gz${gview.zoom === z ? ' on' : ''}" data-zoom="${z}">×${z}</button>`).join('') : ''}
-      ${gview.edit ? '<span class="gspacer"></span>' : `<button class="gz gcopy">${tr('gCopy')}</button>`}
+      ${gview.edit ? `<span class="gspacer"></span><button class="gz gimport">${GT.import}</button>`
+                   : `<button class="gz gcopy">${tr('gCopy')}</button>`}
       <button class="gz gedit${gview.edit ? ' on' : ''}" data-edit="1">${gview.edit ? GT.done : GT.edit}</button>
     </div>
     <div class="gbody">
@@ -3241,6 +3347,7 @@ $('grille').addEventListener('click', e => {
   const p = gview.it.plan;
   if (e.target.closest('.gclose')) { closeGrille(); return; }
   if (e.target.closest('.gplay')) { gview.playing ? stopGrille() : playGrille(); return; }
+  if (e.target.closest('.gimport')) { $('file-plan').click(); return; }
   if (e.target.closest('.gcopy')) {
     navigator.clipboard.writeText(planText(p)).then(() => toast(tr('gCopied'))).catch(() => {});
     return;
@@ -3300,9 +3407,378 @@ $('file-plan').addEventListener('change', e => {
     let data = null;
     try { data = JSON.parse(txt); } catch (_) {}
     if (!isPlan(data)) { toast(tr('gBadPlan')); return; }
+    if (gview.it && !$('grille').classList.contains('hidden')) {
+      gview.it.plan = normPlan(data);      /* on remplace la grille ouverte */
+      updateGrilleDOM(gview.it);
+      renderGrille();
+      scheduleSave();
+      return;
+    }
     const it = addGrilleItem(data);
     select(it);
     scheduleSave();
     openGrille(it);
   });
+});
+
+/* ============================== pomodoro ==============================
+   Un minuteur posé sur le board. L'anneau montre le temps qui reste ;
+   la pastille en tête recule le long du cercle. On tape le cadran pour
+   lancer ou suspendre, les pastilles du bas changent la durée. */
+
+const PT = lang === 'fr'
+  ? { focus: 'focus', pause: 'suspendu', over: 'terminé', ready: 'prêt', add: '+5' }
+  : { focus: 'focus', pause: 'paused', over: 'done', ready: 'ready', add: '+5' };
+
+const POMO_DURS = [5, 15, 25, 50];
+const PR = 44;                      /* rayon de l'anneau */
+const PC = 2 * Math.PI * PR;        /* sa circonférence */
+
+function normPomo(raw) {
+  const p = raw && typeof raw === 'object' ? { ...raw } : {};
+  p.dur = clamp(Math.round(+p.dur) || 25 * 60, 10, 24 * 3600);
+  p.left = clamp(Math.round(+p.left) || p.dur, 0, p.dur);
+  p.done = clamp(Math.round(+p.done) || 0, 0, 99);
+  p.endAt = +p.endAt || 0;
+  p.running = !!p.running;
+  if (p.running) {                  /* on reprend là où l'horloge en est vraiment */
+    const left = Math.round((p.endAt - Date.now()) / 1000);
+    if (left > 0) p.left = Math.min(left, p.dur);
+    else { p.running = false; p.left = 0; }
+  }
+  return p;
+}
+function pomoTime(sec) {
+  sec = Math.max(0, Math.ceil(sec));
+  return Math.floor(sec / 60) + ':' + String(sec % 60).padStart(2, '0');
+}
+const pomoLeft = p => p.running ? Math.max(0, (p.endAt - Date.now()) / 1000) : p.left;
+
+function addPomoItem(at) {
+  const pos = at || toWorld(innerWidth / 2, innerHeight / 2);
+  const w = 210 / view.s;
+  const it = { id: uid(), type: 'pomo', x: pos.x - w / 2, y: pos.y - w / 2, w, rot: 0, size: w / 14, pomo: normPomo({}) };
+  addItem(it);
+  return it;
+}
+
+function pomoMarkup() {
+  return `<span class="pdial" data-p="toggle">
+      <svg viewBox="0 0 100 100" aria-hidden="true">
+        <circle class="ptrack" cx="50" cy="50" r="${PR}"></circle>
+        <circle class="parc" cx="50" cy="50" r="${PR}" transform="rotate(-90 50 50)"
+          stroke-dasharray="${PC.toFixed(2)}" stroke-dashoffset="0"></circle>
+        <circle class="phead" cx="50" cy="6" r="3.6"></circle>
+      </svg>
+      <span class="ptime">0:00</span>
+      <span class="plab">${PT.ready}</span>
+    </span>
+    <span class="pchips">${POMO_DURS.map(m => `<b data-p="${m}">${m}</b>`).join('')}<b data-p="add">${PT.add}</b></span>
+    <span class="pdots" data-p="dots"></span>`;
+}
+
+/* redessine une carte ; frame=true pendant l'animation (on évite alors le superflu) */
+function updatePomoDOM(it, frame) {
+  const el = it.el; if (!el) return;
+  const p = it.pomo;
+  const left = pomoLeft(p);
+  const frac = clamp(p.dur ? left / p.dur : 0, 0, 1);
+
+  const arc = el.querySelector('.parc');
+  if (arc) arc.setAttribute('stroke-dashoffset', (PC * (1 - frac)).toFixed(2));
+  const head = el.querySelector('.phead');
+  if (head) {
+    const a = 2 * Math.PI * frac;
+    head.setAttribute('cx', (50 + PR * Math.sin(a)).toFixed(2));
+    head.setAttribute('cy', (50 - PR * Math.cos(a)).toFixed(2));
+    head.style.opacity = p.running || p.left < p.dur ? 1 : 0;
+  }
+  const t = el.querySelector('.ptime');
+  if (t) {
+    const txt = pomoTime(left);
+    if (t.textContent !== txt) t.textContent = txt;
+  }
+  el.classList.toggle('running', p.running);
+  el.classList.toggle('over', !p.running && left <= 0);
+  el.classList.toggle('last', p.running && left <= 10);
+  if (frame) return;
+
+  const lab = el.querySelector('.plab');
+  if (lab) lab.textContent = p.running ? PT.focus : (left <= 0 ? PT.over : (p.left < p.dur ? PT.pause : PT.ready));
+  for (const c of el.querySelectorAll('.pchips b')) {
+    const v = c.dataset.p;
+    c.classList.toggle('on', v !== 'add' && +v * 60 === p.dur);
+  }
+  const dots = el.querySelector('.pdots');
+  if (dots) dots.innerHTML = p.done ? Array.from({ length: Math.min(p.done, 8) }, () => '<i></i>').join('')
+    + (p.done > 8 ? `<em>${p.done}</em>` : '') : '';
+}
+
+/* ---------- la boucle ---------- */
+let pomoRaf = null;
+function pomoLoop() {
+  let any = false;
+  for (const it of items) {
+    if (it.type !== 'pomo') continue;
+    if (it.pomo.running) {
+      any = true;
+      if (pomoLeft(it.pomo) <= 0) pomoFinish(it);
+      else updatePomoDOM(it, true);
+    }
+  }
+  pomoRaf = any ? requestAnimationFrame(pomoLoop) : null;
+}
+function pomoSync() {
+  const any = items.some(i => i.type === 'pomo' && i.pomo.running);
+  if (any && !pomoRaf) pomoRaf = requestAnimationFrame(pomoLoop);
+  if (any) acquireWakeLock();
+  else if (!locked && !(typeof gview !== 'undefined' && gview.playing)) releaseWakeLock();
+}
+function pomoFinish(it) {
+  const p = it.pomo;
+  p.running = false; p.left = 0; p.endAt = 0; p.done++;
+  updatePomoDOM(it);
+  pomoChime();
+  pomoSync();
+  scheduleSave();
+}
+
+/* trois notes douces, fabriquées à la volée : aucun fichier son à charger */
+let pomoAC = null;
+function pomoChime() {
+  try {
+    pomoAC = pomoAC || new (window.AudioContext || window.webkitAudioContext)();
+    const t0 = pomoAC.currentTime;
+    [880, 1174.7, 1318.5].forEach((f, i) => {
+      const o = pomoAC.createOscillator(), g = pomoAC.createGain();
+      o.type = 'sine'; o.frequency.value = f;
+      const t = t0 + i * 0.16;
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(0.18, t + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.9);
+      o.connect(g); g.connect(pomoAC.destination);
+      o.start(t); o.stop(t + 1);
+    });
+  } catch (_) {}
+}
+
+function pomoAction(it, act) {
+  const p = it.pomo;
+  if (act === 'toggle') {
+    if (p.running) {                       /* suspendre */
+      p.left = Math.max(0, Math.round(pomoLeft(p)));
+      p.running = false; p.endAt = 0;
+    } else {                               /* lancer, ou relancer si terminé */
+      if (p.left <= 0) p.left = p.dur;
+      p.running = true;
+      p.endAt = Date.now() + p.left * 1000;
+      try { pomoAC = pomoAC || new (window.AudioContext || window.webkitAudioContext)(); pomoAC.resume(); } catch (_) {}
+    }
+  } else if (act === 'dots') {
+    p.done = 0;
+  } else if (act === 'add') {
+    p.dur = clamp(p.dur + 300, 10, 24 * 3600);
+    if (p.running) { p.endAt += 300000; } else p.left = Math.min(p.left + 300, p.dur);
+  } else {
+    const m = +act;
+    if (!isFinite(m)) return;
+    p.dur = m * 60; p.left = p.dur; p.running = false; p.endAt = 0;
+  }
+  updatePomoDOM(it);
+  pomoSync();
+  scheduleSave();
+}
+
+/* une carte terminée pendant que l'onglet dormait : on remet les pendules à l'heure */
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) return;
+  for (const it of items) {
+    if (it.type === 'pomo' && it.pomo.running && pomoLeft(it.pomo) <= 0) pomoFinish(it);
+    else if (it.type === 'pomo') updatePomoDOM(it);
+  }
+  pomoSync();
+});
+
+/* ============================== formes et flèches ==============================
+   Des boîtes avec du texte dedans, reliées par des flèches qui se recalculent
+   quand on déplace une boîte. Les réglages n'apparaissent que sur sélection. */
+
+const ST = lang === 'fr'
+  ? { link: 'Relier', pickTarget: 'Tape la boîte d\u2019arrivée', linked: 'Reliée', cancel: 'Liaison annulée',
+      solid: 'Plein', shape: 'Forme' }
+  : { link: 'Link', pickTarget: 'Tap the target box', linked: 'Linked', cancel: 'Link cancelled',
+      solid: 'Solid', shape: 'Shape' };
+
+const SHAPE_FORMS = ['rect', 'pill', 'ellipse', 'diamond'];
+/* une palette courte et tenue : huit encres, pas un nuancier */
+const SHAPE_COLORS = {
+  ink:    '#161616',
+  blue:   '#2b4ee6',
+  red:    '#d81e3f',
+  orange: '#e8611c',
+  ochre:  '#d9a119',
+  green:  '#0f7a5a',
+  violet: '#6b3fa0',
+  warm:   '#8a7f72',
+};
+const SHAPE_KEYS = Object.keys(SHAPE_COLORS);
+
+function normShape(raw) {
+  const s = {};
+  s.form = SHAPE_FORMS.includes(raw && raw.form) ? raw.form : 'rect';
+  s.color = SHAPE_KEYS.includes(raw && raw.color) ? raw.color : 'ink';
+  s.fill = !!(raw && raw.fill);
+  s.text = String((raw && raw.text) || '');
+  return s;
+}
+function addShapeItem(at, opts) {
+  const pos = at || toWorld(innerWidth / 2, innerHeight / 2);
+  const w = 200 / view.s;
+  const s = normShape(opts || {});
+  const it = {
+    id: uid(), type: 'shape', x: pos.x - w / 2, y: pos.y - w / 5, w, rot: 0, size: w / 12,
+    form: s.form, color: s.color, fill: s.fill, text: s.text,
+  };
+  addItem(it);
+  return it;
+}
+function updateShapeDOM(it, el) {
+  const root = el || it.el; if (!root) return;
+  root.dataset.form = it.form;
+  root.dataset.c = it.color;
+  root.classList.toggle('filled', !!it.fill);
+  const tx = root.firstChild;
+  if (tx && tx.textContent !== it.text) tx.textContent = it.text;
+}
+
+/* ---------- les flèches ---------- */
+let arrows = [];          /* { id, from, to, color } — hors de items : rien à ranger, rien à déplacer */
+let linkFrom = null;
+let arrowRaf = null;
+let selectedArrow = null;
+
+function arrowLayer() {
+  let svg = document.getElementById('arrows');
+  if (!svg) {
+    svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.id = 'arrows';
+    svg.setAttribute('width', '1'); svg.setAttribute('height', '1');
+    svg.style.overflow = 'visible';
+    const stage = $('stage');
+    stage.insertBefore(svg, stage.firstChild);
+  }
+  return svg;
+}
+function addArrow(from, to) {
+  if (!from || !to || from === to) return null;
+  if (arrows.some(a => a.from === from.id && a.to === to.id)) return null;
+  const a = { id: uid(), from: from.id, to: to.id, color: from.type === 'shape' ? from.color : 'ink' };
+  arrows.push(a);
+  drawArrows();
+  scheduleSave();
+  return a;
+}
+function removeArrowsOf(id) {
+  const n = arrows.length;
+  arrows = arrows.filter(a => a.from !== id && a.to !== id);
+  if (arrows.length !== n) { drawArrows(); scheduleSave(); }
+}
+function queueArrows() {
+  if (arrowRaf || !arrows.length) return;
+  arrowRaf = requestAnimationFrame(() => { arrowRaf = null; drawArrows(); });
+}
+
+/* point où le segment centre→centre sort de la boîte */
+function edgePoint(bb, tx, ty) {
+  const cx = (bb.x1 + bb.x2) / 2, cy = (bb.y1 + bb.y2) / 2;
+  const dx = tx - cx, dy = ty - cy;
+  if (!dx && !dy) return { x: cx, y: cy };
+  const hw = (bb.x2 - bb.x1) / 2, hh = (bb.y2 - bb.y1) / 2;
+  const sx = dx ? hw / Math.abs(dx) : Infinity;
+  const sy = dy ? hh / Math.abs(dy) : Infinity;
+  const t = Math.min(sx, sy);
+  return { x: cx + dx * t, y: cy + dy * t };
+}
+function drawArrows() {
+  const svg = arrowLayer();
+  const byId = new Map(items.map(i => [i.id, i]));
+  arrows = arrows.filter(a => byId.has(a.from) && byId.has(a.to));
+  let out = '';
+  for (const a of arrows) {
+    const A = itemBBox(byId.get(a.from)), B = itemBBox(byId.get(a.to));
+    const ac = { x: (A.x1 + A.x2) / 2, y: (A.y1 + A.y2) / 2 };
+    const bc = { x: (B.x1 + B.x2) / 2, y: (B.y1 + B.y2) / 2 };
+    const p1 = edgePoint(A, bc.x, bc.y);
+    const p2 = edgePoint(B, ac.x, ac.y);
+    const ang = Math.atan2(p2.y - p1.y, p2.x - p1.x);
+    const len = Math.hypot(p2.x - p1.x, p2.y - p1.y);
+    if (len < 6) continue;
+    const h = clamp(len * 0.14, 9, 18);          /* pointe proportionnée, jamais énorme */
+    const bx = p2.x - Math.cos(ang) * h, by = p2.y - Math.sin(ang) * h;
+    const nx = -Math.sin(ang) * h * 0.42, ny = Math.cos(ang) * h * 0.42;
+    const col = SHAPE_COLORS[a.color] || SHAPE_COLORS.ink;
+    const sel = a.id === selectedArrow ? ' sel' : '';
+    out += `<g class="arw${sel}" data-a="${a.id}" style="--ac:${col}">
+      <line class="ahit" x1="${p1.x}" y1="${p1.y}" x2="${p2.x}" y2="${p2.y}"></line>
+      <line class="aline" x1="${p1.x}" y1="${p1.y}" x2="${bx}" y2="${by}"></line>
+      <path class="ahead" d="M${p2.x} ${p2.y} L${bx + nx} ${by + ny} L${bx - nx} ${by - ny} Z"></path>
+    </g>`;
+    if (sel) {
+      const mx = (p1.x + p2.x) / 2, my = (p1.y + p2.y) / 2;
+      out += `<g class="axk" data-ax="${a.id}"><circle cx="${mx}" cy="${my}" r="11"></circle>
+        <path d="M${mx - 4} ${my - 4} L${mx + 4} ${my + 4} M${mx + 4} ${my - 4} L${mx - 4} ${my + 4}"></path></g>`;
+    }
+  }
+  svg.innerHTML = out;
+}
+
+/* ---------- la barre de réglages, visible seulement sur sélection ---------- */
+function shapeBarMarkup() {
+  const forms = SHAPE_FORMS.map(f => `<button data-sf="${f}" title="${ST.shape}"><i class="sfi sf-${f}"></i></button>`).join('');
+  const cols = SHAPE_KEYS.map(k => `<button data-sc="${k}"><i class="sci" style="background:${SHAPE_COLORS[k]}"></i></button>`).join('');
+  return `<span class="sgrp">${forms}</span><span class="sgrp">${cols}</span>
+    <span class="sgrp"><button data-sfill="1" class="stog">${ST.solid}</button>
+    <button data-slink="1" class="stog">${ST.link} →</button></span>`;
+}
+function syncShapeBar(it) {
+  const bar = $('shapebar');
+  if (!it || it.type !== 'shape' || locked) { bar.classList.remove('open'); return; }
+  if (!bar.dataset.built) { bar.innerHTML = shapeBarMarkup(); bar.dataset.built = '1'; }
+  for (const b of bar.querySelectorAll('[data-sf]')) b.classList.toggle('on', b.dataset.sf === it.form);
+  for (const b of bar.querySelectorAll('[data-sc]')) b.classList.toggle('on', b.dataset.sc === it.color);
+  bar.querySelector('[data-sfill]').classList.toggle('on', !!it.fill);
+  bar.querySelector('[data-slink]').classList.toggle('on', linkFrom === it);
+  closePopovers('shapebar');
+  bar.classList.add('open');
+}
+$('shapebar').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  const it = selected;
+  if (!it || it.type !== 'shape') return;
+  if (b.dataset.sf) it.form = b.dataset.sf;
+  else if (b.dataset.sc) {
+    it.color = b.dataset.sc;
+    for (const a of arrows) if (a.from === it.id) a.color = it.color;
+    drawArrows();
+  } else if (b.dataset.sfill) it.fill = !it.fill;
+  else if (b.dataset.slink) {
+    linkFrom = linkFrom === it ? null : it;
+    toast(linkFrom ? ST.pickTarget : ST.cancel);
+  }
+  updateShapeDOM(it);
+  syncShapeBar(it);
+  scheduleSave();
+});
+
+/* clic sur une flèche : elle se met en avant et propose sa croix */
+$('vp').addEventListener('click', e => {
+  const kill = e.target.closest('[data-ax]');
+  if (kill) {
+    arrows = arrows.filter(a => a.id !== kill.dataset.ax);
+    selectedArrow = null; drawArrows(); scheduleSave();
+    return;
+  }
+  const g = e.target.closest('[data-a]');
+  const next = g ? g.dataset.a : null;
+  if (next !== selectedArrow) { selectedArrow = next; drawArrows(); }
 });

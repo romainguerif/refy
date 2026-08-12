@@ -37,8 +37,8 @@ body.drawing #vp { cursor:crosshair; }
 .item.text .tx.serif { font-family:"Bodoni 72", Didot, Georgia, serif; }
 .item.text.editing { cursor:text; }
 
-/* cartes : checklist, palette, lien, grille */
-.item.todo, .item.link, .item.grille {
+/* cartes : checklist, palette, lien, grille, pomodoro */
+.item.todo, .item.link, .item.grille, .item.pomo {
   background:var(--paper); color:var(--ink); border-radius:.6em;
   box-shadow:0 .12em .5em rgba(0,0,0,.22);
 }
@@ -608,3 +608,111 @@ body.dropping #drop-overlay { display:flex; }
    viserait la hauteur, et la largeur intrinsèque d'un input ferait passer à la ligne */
 .ger.gtop3 label { flex:1 1 0; min-width:0; }
 .ger.gtop3 .gin { flex:0 0 auto; width:100%; min-width:0; height:auto; padding:9px 6px; }
+
+/* ---------- pomodoro ---------- */
+.item.pomo { padding:.7em .7em .6em; text-align:center; }
+.pdial { position:relative; display:block; width:100%; aspect-ratio:1; cursor:pointer; }
+.pdial svg { width:100%; height:100%; display:block; overflow:visible; }
+.ptrack { fill:none; stroke:var(--hair); stroke-width:5; }
+.parc { fill:none; stroke:var(--accent); stroke-width:5; stroke-linecap:round; transition:stroke .4s ease; }
+.phead { fill:var(--accent); transition:fill .4s ease, opacity .3s ease; }
+.ptime {
+  position:absolute; left:0; right:0; top:50%; transform:translateY(-58%);
+  font-size:1.85em; font-weight:600; letter-spacing:-.02em; color:var(--ink);
+  font-variant-numeric:tabular-nums; pointer-events:none;
+}
+.plab {
+  position:absolute; left:0; right:0; top:50%; margin-top:1.15em;
+  font-size:.62em; letter-spacing:.22em; text-transform:uppercase;
+  color:var(--ink-soft); pointer-events:none;
+}
+.item.pomo:not(.running) .parc { stroke:var(--ink-soft); }
+.item.pomo:not(.running) .phead { fill:var(--ink-soft); }
+.item.pomo.last .ptime { animation:pbreath 1s ease-in-out infinite; }
+@keyframes pbreath { 0%,100% { transform:translateY(-58%) scale(1); } 50% { transform:translateY(-58%) scale(1.06); } }
+.item.pomo.over .pdial::before {
+  content:""; position:absolute; inset:6%; border-radius:50%; background:var(--accent);
+  animation:ppop .5s var(--spring) both;
+}
+.item.pomo.over .ptime, .item.pomo.over .plab { color:var(--paper); z-index:1; }
+.item.pomo.over .ptrack, .item.pomo.over .parc, .item.pomo.over .phead { opacity:0; }
+.item.pomo.over { animation:pring 1.6s ease-out 1; }
+@keyframes ppop { from { transform:scale(.6); opacity:0; } to { transform:scale(1); opacity:1; } }
+@keyframes pring {
+  0%,100% { box-shadow:0 .12em .5em rgba(0,0,0,.22); }
+  20% { box-shadow:0 .12em .5em rgba(0,0,0,.22), 0 0 0 .55em rgba(43,78,230,.28); }
+  60% { box-shadow:0 .12em .5em rgba(0,0,0,.22), 0 0 0 1.1em rgba(43,78,230,0); }
+}
+.pchips { display:flex; gap:.25em; margin-top:.55em; }
+.pchips b {
+  flex:1; padding:.34em 0; border-radius:.3em; border:.075em solid var(--hair);
+  font-size:.72em; font-weight:500; color:var(--ink-soft); cursor:pointer;
+  font-variant-numeric:tabular-nums;
+}
+.pchips b.on { background:var(--ink); border-color:var(--ink); color:var(--paper); }
+.pdots { display:flex; align-items:center; justify-content:center; gap:.3em; height:.9em; margin-top:.4em; }
+.pdots i { display:block; width:.34em; height:.34em; border-radius:50%; background:var(--accent); }
+.pdots em { font-size:.6em; font-style:normal; color:var(--ink-soft); }
+
+/* ---------- formes ---------- */
+.item.shape {
+  --c:#161616;
+  display:flex; align-items:center; justify-content:center;
+  min-height:2.6em; padding:.7em .9em; text-align:center;
+  background:var(--paper); color:var(--c);
+  border:.12em solid var(--c); border-radius:.4em;
+  box-shadow:0 .12em .5em rgba(0,0,0,.18);
+}
+.item.shape .tx {
+  width:100%; line-height:1.25; word-break:break-word; white-space:pre-wrap;
+  font-weight:600; letter-spacing:-.01em; outline:none; caret-color:var(--c);
+}
+.item.shape[data-form="pill"] { border-radius:999px; padding:.7em 1.3em; }
+.item.shape[data-form="ellipse"] { border-radius:50%; padding:1.4em; }
+.item.shape[data-form="diamond"] {
+  border:0; border-radius:.2em; padding:1.5em 1.2em; background:var(--c);
+  clip-path:polygon(50% 0, 100% 50%, 50% 100%, 0 50%);
+}
+.item.shape[data-form="diamond"]::before {
+  content:""; position:absolute; inset:.14em; background:var(--paper);
+  clip-path:polygon(50% 0, 100% 50%, 50% 100%, 0 50%);
+}
+.item.shape[data-form="diamond"] .tx { position:relative; z-index:1; }
+.item.shape.filled { background:var(--c); color:var(--paper); }
+.item.shape.filled[data-form="diamond"]::before { background:var(--c); }
+.item.shape[data-c="ink"]    { --c:#161616; }
+.item.shape[data-c="blue"]   { --c:#2b4ee6; }
+.item.shape[data-c="red"]    { --c:#d81e3f; }
+.item.shape[data-c="orange"] { --c:#e8611c; }
+.item.shape[data-c="ochre"]  { --c:#d9a119; }
+.item.shape[data-c="green"]  { --c:#0f7a5a; }
+.item.shape[data-c="violet"] { --c:#6b3fa0; }
+.item.shape[data-c="warm"]   { --c:#8a7f72; }
+
+/* ---------- flèches ---------- */
+#arrows { position:absolute; left:0; top:0; pointer-events:none; }
+#arrows .arw { pointer-events:auto; --ac:#161616; }
+.ahit { stroke:transparent; stroke-width:18; fill:none; }
+.aline { stroke:var(--ac); stroke-width:2.4; fill:none; stroke-linecap:round; }
+.ahead { fill:var(--ac); }
+.arw.sel .aline { stroke-width:3.6; }
+.axk { pointer-events:auto; cursor:pointer; }
+.axk circle { fill:var(--paper); stroke:var(--ac); stroke-width:1.6; }
+.axk path { stroke:var(--ac); stroke-width:1.8; stroke-linecap:round; fill:none; }
+
+/* ---------- barre de réglages d'une forme ---------- */
+#shapebar { display:none; gap:.55rem; align-items:center; flex-wrap:wrap; max-width:min(92vw,30rem); }
+#shapebar.open { display:flex; }
+#shapebar .sgrp { display:flex; gap:.2rem; align-items:center; }
+#shapebar button {
+  background:none; border:0; padding:.3rem; border-radius:.4rem; cursor:pointer;
+  color:inherit; display:flex; align-items:center; justify-content:center;
+}
+#shapebar button.on { background:rgba(255,255,255,.16); }
+#shapebar .sfi { display:block; width:19px; height:14px; border:2px solid currentColor; }
+#shapebar .sf-pill { border-radius:999px; }
+#shapebar .sf-ellipse { border-radius:50%; }
+#shapebar .sf-diamond { width:15px; height:15px; transform:rotate(45deg); }
+#shapebar .sci { display:block; width:17px; height:17px; border-radius:50%; }
+#shapebar button.on .sci { box-shadow:0 0 0 2px #f5f2ea; }
+#shapebar .stog { font-size:.78rem; padding:.3rem .55rem; border:1px solid rgba(255,255,255,.2); }

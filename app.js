@@ -224,7 +224,7 @@ function animateViewTo(tx, ty, ts) {
 }
 
 /* ============================== IndexedDB ============================== */
-const APP_V = 'v5.29';     /* affiche dans le diagnostic : sert a savoir quel code tourne */
+const APP_V = 'v5.30';     /* affiche dans le diagnostic : sert a savoir quel code tourne */
 let dbWhy = '';            /* raison precise du refus d'ouverture */
 let db = null;
 let saveBroken = '';
@@ -2104,11 +2104,14 @@ document.addEventListener('pointerdown', e => {
   closePopovers();
 }, true);
 
-/* menu ··· : un écran par famille, glissement latéral, hauteur animée */
+/* menu ··· : un écran par famille, glissement latéral, hauteur animée.
+   La hauteur passe par la Web Animations API : elle part de la valeur réellement affichée
+   (même en plein vol) et atterrit pile sur la hauteur naturelle — aucun saut, interruptible. */
 let morePane = 'root';
+let moreAnim = null;
 function morePaneReset() {
   const m = $('more');
-  m.style.height = '';
+  if (moreAnim) { moreAnim.cancel(); moreAnim = null; }
   for (const p of m.querySelectorAll('.mpane')) {
     p.classList.toggle('gone-r', p.dataset.pane !== 'root');
     p.classList.remove('gone-l');
@@ -2121,18 +2124,26 @@ function morePaneGo(next, dir) {
   const nxt = m.querySelector(`.mpane[data-pane="${next}"]`);
   if (!nxt || nxt === cur) return;
   morePane = next;
-  m.style.height = m.offsetHeight + 'px';
+  const h0 = m.getBoundingClientRect().height; // valeur affichée, y compris en cours d'animation
+  if (moreAnim) moreAnim.cancel();
   cur.classList.add(dir > 0 ? 'gone-l' : 'gone-r');
+  cur.classList.remove(dir > 0 ? 'gone-r' : 'gone-l');
   nxt.classList.remove('gone-l', 'gone-r');
-  m.offsetHeight; // reflow : la hauteur de départ doit être posée avant la cible
-  m.style.height = (nxt.offsetHeight + 16) + 'px'; // 16 = padding haut + bas
-  setTimeout(() => { if (morePane === next) m.style.height = ''; }, 320);
+  const h1 = nxt.getBoundingClientRect().height + 16; // 16 = padding haut + bas
+  if (!m.animate) return;
+  moreAnim = m.animate({ height: [h0 + 'px', h1 + 'px'] },
+                       { duration: 340, easing: 'cubic-bezier(.22,1,.36,1)' });
+  moreAnim.onfinish = () => { moreAnim = null; };
 }
 $('btn-more').addEventListener('click', () => {
   const m = $('more');
   const wasOpen = m.classList.contains('open');
   closePopovers();
-  if (!wasOpen) { morePaneReset(); m.classList.add('open'); }
+  if (!wasOpen) {
+    morePaneReset();
+    m.classList.add('open', 'fresh'); // fresh : la cascade des lignes ne joue qu'à l'ouverture
+    setTimeout(() => m.classList.remove('fresh'), 500);
+  }
 });
 $('more').addEventListener('click', e => {
   const b = e.target.closest('button');

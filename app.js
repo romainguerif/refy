@@ -4148,6 +4148,7 @@ async function boardStruct() {
 
 /* ---------- envoi ---------- */
 let dbxBusy = false, dbxTimer = null, dbxDirty = new Set();
+let dbxWhy = '';           /* pourquoi la derniere synchro a echoue */
 
 async function dbxPushCurrent() {
   const id = library.current;
@@ -4241,11 +4242,11 @@ function dbxStatus(k) {
   const dot = $('dbx-dot');
   if (!dot) return;
   dot.className = 'dbx-dot ' + (k || '');
-  dot.title = k === 'sync' ? DT.syncing : k === 'bad' ? DT.fail : DT.ok;
+  dot.title = k === 'sync' ? DT.syncing : k === 'bad' ? DT.fail + (dbxWhy ? ' — ' + dbxWhy : '') : DT.ok;
 }
 async function dbxSync(full) {
   if (!dbxOn() || dbxBusy || !library) return;
-  if (!navigator.onLine) { dbxStatus('bad'); return; }
+  if (!navigator.onLine) { dbxWhy = DT.offline; dbxStatus('bad'); return; }
   dbxBusy = true; dbxStatus('sync');
   try {
     if (full) {
@@ -4258,8 +4259,11 @@ async function dbxSync(full) {
       }
     }
     if (dbxDirty.size || full) { await dbxPushCurrent(); dbxDirty.clear(); }
+    dbxWhy = '';
     dbxStatus('');
   } catch (e) {
+    /* on garde le debut du message : Dropbox renvoie un texte parlant */
+    dbxWhy = String((e && e.message) || e).replace(/\s+/g, ' ').slice(0, 120);
     dbxStatus('bad');
   } finally { dbxBusy = false; }
 }
@@ -4365,7 +4369,8 @@ async function dbxPanel() {
     <span class="dhint diag">${st.boards} board${st.boards > 1 ? 's' : ''} · ${DT.store} ${st.persisted ? DT.kept : DT.evictable} · ${st.base}</span>
     <span class="dhint diag">${st.version}</span>`;
   bar.innerHTML = gauge + (dbxOn()
-    ? `<span class="dhint">${DT.on}</span>
+    ? (dbxWhy ? `<span class="dhint bad">${DT.fail} — ${esc(dbxWhy)}</span>` : `<span class="dhint">${DT.on}</span>`)
+    + `<span class="dhint" style="display:none"></span>
        <button class="dbtn" data-db="now">${DT.now}</button>
        <button class="dbtn" data-db="gc">${DT.gc}</button>
        <button class="dbtn quiet" data-db="off">${DT.off}</button>`
@@ -4378,7 +4383,10 @@ $('dbx').addEventListener('click', e => {
   const a = b.dataset.db;
   if (a === 'on') dbxConnect();
   else if (a === 'off') { dbxForget(); dbxPanel(); dbxStatus(''); toast(DT.bye); }
-  else if (a === 'now') { closePopovers(); dbxSync(true); }
+  else if (a === 'now') {
+    closePopovers();
+    dbxSync(true).then(() => toast(dbxWhy ? DT.fail + ' — ' + dbxWhy : DT.ok, dbxWhy ? 9000 : 2500));
+  }
   else if (a === 'gc') {
     closePopovers(); toast(DT.cleaning);
     dbxGc().then(r => toast(r.removed ? DT.cleaned(r.removed, humanSize(r.freed)) : DT.clean, 3500))

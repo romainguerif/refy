@@ -12,6 +12,8 @@ Collect images, arrange them freely, then lock the screen and trace right on you
 
 *No account. No server. No dependencies. One HTML file.*
 
+*Best in **Chrome** — see [Which browser](#which-browser).*
+
 </div>
 
 ---
@@ -26,8 +28,32 @@ Collect images, arrange them freely, then lock the screen and trace right on you
 - **Song plans** — drop a `.json` arrangement on the board (or just paste it) and it becomes a card: title, tempo, section strip, energy curve. Double-tap it for the full screen — timeline, list view, and a playhead that runs at the tempo and tells you which section you are in and when the next one lands.
 - **A quiet calendar** — a local agenda in the ··· menu. Dates and events live in Refy only; there is no sync and no account.
 - **Backups on your device** — export any board as a portable `.refy.json` file and re-import it anywhere (imports become a new board, nothing gets overwritten).
+- **Installs like an app** — add it to your home screen and it runs full screen, offline, and updates itself: it checks for a new version on every launch and reloads once when one lands.
 - **Made for iPad** — install it from Safari as a full-screen app, works offline, imports straight from your photo library. Large photos are downscaled on import to keep the tab fast.
 - **Minimal by design** — the toolbar stays small; tools and options only appear when they are relevant, with discreet animations throughout. Cream paper surfaces, hand-drawn monochrome icons, Klein blue accent, curated board backgrounds.
+
+## Which browser
+
+Refy stores everything on your device, so what matters is whether the browser
+lets it keep that data. They do not behave the same.
+
+**Chrome — recommended.** It grants persistent storage to installed apps and to
+bookmarked sites, which means the browser will not wipe your boards on its own.
+Installed from Chrome, Refy also updates itself reliably.
+
+Other Chromium browsers work, but some refuse persistent storage or clear site
+data when you close the last window. If that happens, Refy warns you at startup
+and offers a **Protect from erasure** button in ··· → Dropbox. Two things help:
+bookmark the site, and allow notifications — Chromium treats both as a signal
+that the site matters. Refy never sends notifications; the permission is only
+the key to that lock.
+
+Safari on iPad works and installs cleanly, with one caveat: a home screen app
+and Safari itself do not always share the same storage, so boards created in one
+may not appear in the other.
+
+Whatever the browser, the durable copy is the one that lives elsewhere: connect
+Dropbox, or export a board to a file.
 
 ## Controls
 

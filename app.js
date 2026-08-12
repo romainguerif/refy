@@ -134,7 +134,7 @@ const I18N_EN = {
   segNotes: 'Notes', segBoard: 'This board', segAll: 'All', calTitle: 'Calendar', libNew: 'New board',
   evPlaceholder: 'New event', dropHere: 'Drop your files here', clearBtn: 'Empty this board',
   helpTag: 'reference boards',
-  hintSub: 'Add images with the + button, by dropping them here, or by pasting (Ctrl+V).<br>One finger: move · two fingers: size and rotation · padlock: freeze for tracing.<br>Your boards are saved automatically in this browser.',
+  hintSub: 'Add images with the + button, by dropping them here, or by pasting (Ctrl+V).<br>One finger: move · two fingers: size and rotation · padlock: freeze for tracing.<br>Your boards are saved automatically in this browser.<br><b>Chrome recommended</b> — the only one that reliably keeps your data.',
   htAdd: 'Add', htPen: 'Pencil & text', htManip: 'Manipulate', htTrace: 'Trace', htTodo: 'Checklists & notes',
   htCal: 'Calendar', htPal: 'Palette & links', htPres: 'Presentation & export', htBackup: 'Backup', htKeys: 'Keyboard',
   hpBoards: 'The icon at the left of the bar opens your library: create, rename, delete and switch boards. Everything is saved automatically in the browser.',
@@ -224,7 +224,7 @@ function animateViewTo(tx, ty, ts) {
 }
 
 /* ============================== IndexedDB ============================== */
-const APP_V = 'v5.24';     /* affiche dans le diagnostic : sert a savoir quel code tourne */
+const APP_V = 'v5.25';     /* affiche dans le diagnostic : sert a savoir quel code tourne */
 let dbWhy = '';            /* raison precise du refus d'ouverture */
 let db = null;
 let saveBroken = '';

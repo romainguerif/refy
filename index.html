@@ -69,25 +69,39 @@
   </div>
 
   <div id="more" class="popover">
-    <span class="mgrp" data-i18n="mgPose">Poser</span>
-    <button data-act="shape"><svg class="ic" viewBox="0 0 24 24"><rect x="3" y="5" width="8" height="6" rx="1.5"/><rect x="13" y="13" width="8" height="6" rx="1.5"/><path d="M11 8h4a2 2 0 0 1 2 2v3"/></svg><span data-i18n="mShape">Forme</span></button>
-    <button data-act="todo"><svg class="ic" viewBox="0 0 24 24"><rect x="4" y="5" width="5" height="5" rx="1.2"/><path d="M5.2 7.5l1.2 1.2 2-2.4" stroke-width="1.4"/><path d="M12.5 7.5H20M12.5 16.5H20"/><rect x="4" y="14" width="5" height="5" rx="1.2"/></svg><span data-i18n="mTodo">Checklist</span></button>
-    <button data-act="pomo"><svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="13" r="8"/><path d="M12 13V9M9 2h6"/></svg><span data-i18n="mPomo">Pomodoro</span></button>
-    <span class="mgrp" data-i18n="mgMusic">Musique</span>
-    <button data-act="grille"><svg class="ic" viewBox="0 0 24 24"><path d="M4 6h9M4 12h16M4 18h6"/><path d="M17 4v4M9 10v4M11 16v4"/></svg><span data-i18n="mGrille">Grille de morceau</span></button>
-    <button data-act="album"><svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="2"/><path d="M12 3.5v3M12 17.5v3"/></svg><span data-i18n="mAlbum">Album</span></button>
-    <span class="mgrp" data-i18n="mgBoard">Le board</span>
-    <button data-act="bg"><svg class="ic" viewBox="0 0 24 24"><path d="M12 3.2s6 6.6 6 10.8a6 6 0 0 1-12 0c0-4.2 6-10.8 6-10.8z"/></svg><span data-i18n="mBg">Fond du board</span></button>
-    <button data-act="arrange"><svg class="ic" viewBox="0 0 24 24"><rect x="4" y="4" width="7" height="7" rx="1.5"/><rect x="13" y="4" width="7" height="7" rx="1.5"/><rect x="4" y="13" width="7" height="7" rx="1.5"/><rect x="13" y="13" width="7" height="7" rx="1.5"/></svg><span data-i18n="mArrange">Ranger le board</span></button>
-    <button data-act="present"><svg class="ic" viewBox="0 0 24 24"><path d="M2.5 12s3.5-6.5 9.5-6.5S21.5 12 21.5 12s-3.5 6.5-9.5 6.5S2.5 12 2.5 12z"/><circle cx="12" cy="12" r="2.8"/></svg><span data-i18n="mPres">Présentation</span></button>
-    <button data-act="cal"><svg class="ic" viewBox="0 0 24 24"><rect x="4" y="6" width="16" height="14" rx="2"/><path d="M4 10h16M8 4v4M16 4v4"/></svg><span data-i18n="mCal">Calendrier</span></button>
-    <span class="mgrp" data-i18n="mgFiles">Fichiers</span>
-    <button data-act="doc"><svg class="ic" viewBox="0 0 24 24"><path d="M7 3h7l4 4v14H7z"/><path d="M14 3v4h4"/></svg><span data-i18n="mDoc">Importer un document</span></button>
-    <button data-act="import"><svg class="ic" viewBox="0 0 24 24"><path d="M12 15V4M8 8l4-4 4 4M5 19.5h14"/></svg><span data-i18n="mImport">Importer un backup</span></button>
-    <button data-act="export"><svg class="ic" viewBox="0 0 24 24"><path d="M12 4v11M8 11l4 4 4-4M5 19.5h14"/></svg><span data-i18n="mExport">Exporter le board</span></button>
-    <button data-act="png"><svg class="ic" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"/><circle cx="9.2" cy="9.2" r="1.6"/><path d="M4 17l4.5-4.5 3.5 3.5 4-5L20 15"/></svg><span data-i18n="mPng">Exporter en PNG</span></button>
-    <button data-act="dbx"><svg class="ic" viewBox="0 0 24 24"><path d="M7 3 2 6.5 7 10l5-3.5zM17 3l-5 3.5L17 10l5-3.5zM2 13.5 7 10l5 3.5L7 17zM12 13.5 17 10l5 3.5L17 17zM7 18.5l5-3 5 3-5 3z"/></svg><span data-i18n="mDbx">Dropbox</span></button>
-    <button data-act="help"><svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9.6 9.2a2.5 2.5 0 0 1 4.9.6c0 1.7-2.5 2-2.5 3.4"/><path d="M12 16.8v.01"/></svg><span data-i18n="mHelp">Aide</span></button>
+    <div class="mpane" data-pane="root">
+      <button class="mcat" data-cat="pose"><svg class="ic" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M12 8.5v7M8.5 12h7"/></svg><span data-i18n="mgPose">Poser</span><svg class="ic chev" viewBox="0 0 24 24"><path d="M10 7l5 5-5 5"/></svg></button>
+      <button class="mcat" data-cat="music"><svg class="ic" viewBox="0 0 24 24"><path d="M9 17.5V6l9-2v11.5"/><circle cx="6.8" cy="17.5" r="2.2"/><circle cx="15.8" cy="15.5" r="2.2"/></svg><span data-i18n="mgMusic">Musique</span><svg class="ic chev" viewBox="0 0 24 24"><path d="M10 7l5 5-5 5"/></svg></button>
+      <button class="mcat" data-cat="board"><svg class="ic" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M4 10h16M10 10v10"/></svg><span data-i18n="mgBoard">Le board</span><svg class="ic chev" viewBox="0 0 24 24"><path d="M10 7l5 5-5 5"/></svg></button>
+      <button class="mcat" data-cat="files"><svg class="ic" viewBox="0 0 24 24"><path d="M3.5 7a2 2 0 0 1 2-2h4.2l2 2.3h6.8a2 2 0 0 1 2 2V17a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"/></svg><span data-i18n="mgFiles">Fichiers</span><svg class="ic chev" viewBox="0 0 24 24"><path d="M10 7l5 5-5 5"/></svg></button>
+      <button data-act="help"><svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9.6 9.2a2.5 2.5 0 0 1 4.9.6c0 1.7-2.5 2-2.5 3.4"/><path d="M12 16.8v.01"/></svg><span data-i18n="mHelp">Aide</span></button>
+    </div>
+    <div class="mpane gone-r" data-pane="pose">
+      <button class="mback" data-back><svg class="ic" viewBox="0 0 24 24"><path d="M14 6l-6 6 6 6"/></svg><span data-i18n="mgPose">Poser</span></button>
+      <button data-act="shape"><svg class="ic" viewBox="0 0 24 24"><rect x="3" y="5" width="8" height="6" rx="1.5"/><rect x="13" y="13" width="8" height="6" rx="1.5"/><path d="M11 8h4a2 2 0 0 1 2 2v3"/></svg><span data-i18n="mShape">Forme</span></button>
+      <button data-act="todo"><svg class="ic" viewBox="0 0 24 24"><rect x="4" y="5" width="5" height="5" rx="1.2"/><path d="M5.2 7.5l1.2 1.2 2-2.4" stroke-width="1.4"/><path d="M12.5 7.5H20M12.5 16.5H20"/><rect x="4" y="14" width="5" height="5" rx="1.2"/></svg><span data-i18n="mTodo">Checklist</span></button>
+      <button data-act="pomo"><svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="13" r="8"/><path d="M12 13V9M9 2h6"/></svg><span data-i18n="mPomo">Pomodoro</span></button>
+    </div>
+    <div class="mpane gone-r" data-pane="music">
+      <button class="mback" data-back><svg class="ic" viewBox="0 0 24 24"><path d="M14 6l-6 6 6 6"/></svg><span data-i18n="mgMusic">Musique</span></button>
+      <button data-act="grille"><svg class="ic" viewBox="0 0 24 24"><path d="M4 6h9M4 12h16M4 18h6"/><path d="M17 4v4M9 10v4M11 16v4"/></svg><span data-i18n="mGrille">Grille de morceau</span></button>
+      <button data-act="album"><svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="2"/><path d="M12 3.5v3M12 17.5v3"/></svg><span data-i18n="mAlbum">Album</span></button>
+    </div>
+    <div class="mpane gone-r" data-pane="board">
+      <button class="mback" data-back><svg class="ic" viewBox="0 0 24 24"><path d="M14 6l-6 6 6 6"/></svg><span data-i18n="mgBoard">Le board</span></button>
+      <button data-act="bg"><svg class="ic" viewBox="0 0 24 24"><path d="M12 3.2s6 6.6 6 10.8a6 6 0 0 1-12 0c0-4.2 6-10.8 6-10.8z"/></svg><span data-i18n="mBg">Fond du board</span></button>
+      <button data-act="arrange"><svg class="ic" viewBox="0 0 24 24"><rect x="4" y="4" width="7" height="7" rx="1.5"/><rect x="13" y="4" width="7" height="7" rx="1.5"/><rect x="4" y="13" width="7" height="7" rx="1.5"/><rect x="13" y="13" width="7" height="7" rx="1.5"/></svg><span data-i18n="mArrange">Ranger le board</span></button>
+      <button data-act="present"><svg class="ic" viewBox="0 0 24 24"><path d="M2.5 12s3.5-6.5 9.5-6.5S21.5 12 21.5 12s-3.5 6.5-9.5 6.5S2.5 12 2.5 12z"/><circle cx="12" cy="12" r="2.8"/></svg><span data-i18n="mPres">Présentation</span></button>
+      <button data-act="cal"><svg class="ic" viewBox="0 0 24 24"><rect x="4" y="6" width="16" height="14" rx="2"/><path d="M4 10h16M8 4v4M16 4v4"/></svg><span data-i18n="mCal">Calendrier</span></button>
+    </div>
+    <div class="mpane gone-r" data-pane="files">
+      <button class="mback" data-back><svg class="ic" viewBox="0 0 24 24"><path d="M14 6l-6 6 6 6"/></svg><span data-i18n="mgFiles">Fichiers</span></button>
+      <button data-act="doc"><svg class="ic" viewBox="0 0 24 24"><path d="M7 3h7l4 4v14H7z"/><path d="M14 3v4h4"/></svg><span data-i18n="mDoc">Importer un document</span></button>
+      <button data-act="import"><svg class="ic" viewBox="0 0 24 24"><path d="M12 15V4M8 8l4-4 4 4M5 19.5h14"/></svg><span data-i18n="mImport">Importer un backup</span></button>
+      <button data-act="export"><svg class="ic" viewBox="0 0 24 24"><path d="M12 4v11M8 11l4 4 4-4M5 19.5h14"/></svg><span data-i18n="mExport">Exporter le board</span></button>
+      <button data-act="png"><svg class="ic" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"/><circle cx="9.2" cy="9.2" r="1.6"/><path d="M4 17l4.5-4.5 3.5 3.5 4-5L20 15"/></svg><span data-i18n="mPng">Exporter en PNG</span></button>
+      <button data-act="dbx"><svg class="ic" viewBox="0 0 24 24"><path d="M7 3 2 6.5 7 10l5-3.5zM17 3l-5 3.5L17 10l5-3.5zM2 13.5 7 10l5 3.5L7 17zM12 13.5 17 10l5 3.5L17 17zM7 18.5l5-3 5 3-5 3z"/></svg><span data-i18n="mDbx">Dropbox</span></button>
+    </div>
   </div>
 
   <div id="swatches" class="popover"></div>

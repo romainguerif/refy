@@ -141,21 +141,41 @@ body:not(.sel-img):not(.sel-text) #btn-adj { display:none; }
   transition:opacity .2s ease, transform .24s var(--spring);
 }
 .popover.open { opacity:1; pointer-events:auto; transform:translateX(-50%) translateY(0) scale(1); }
+/* menu ··· : un vrai menu — l'accueil liste les familles, chaque famille glisse latéralement */
 #more { flex-direction:column; align-items:stretch; gap:0; padding:8px;
-  max-height:min(78vh, 40rem); overflow-y:auto; }
-/* le menu a doublé : quatre familles, et on retrouve tout du premier coup d'œil */
-#more .mgrp {
-  font-size:10px; letter-spacing:.16em; text-transform:uppercase; opacity:.42;
-  padding:12px 14px 5px; font-weight:600;
+  width:min(248px, calc(100vw - 24px)); overflow:hidden;
+  transition:opacity .2s ease, transform .24s var(--spring), height .3s var(--swift); }
+#more .mpane {
+  display:flex; flex-direction:column; align-items:stretch;
+  max-height:min(70vh, 36rem); overflow-y:auto;
+  transition:transform .3s var(--swift), opacity .22s ease;
 }
-#more .mgrp:first-child { padding-top:4px; }
+#more .mpane.gone-l, #more .mpane.gone-r {
+  position:absolute; left:8px; right:8px; top:8px; opacity:0; pointer-events:none;
+}
+#more .mpane.gone-l { transform:translateX(-16%); }
+#more .mpane.gone-r { transform:translateX(16%); }
+/* les lignes du panneau visible arrivent en cascade */
+@keyframes mrow { from { opacity:0; transform:translateY(6px); } }
+#more.open .mpane:not(.gone-l):not(.gone-r) > * { animation:mrow .3s var(--swift) backwards; }
+#more.open .mpane:not(.gone-l):not(.gone-r) > :nth-child(2) { animation-delay:.03s; }
+#more.open .mpane:not(.gone-l):not(.gone-r) > :nth-child(3) { animation-delay:.06s; }
+#more.open .mpane:not(.gone-l):not(.gone-r) > :nth-child(4) { animation-delay:.09s; }
+#more.open .mpane:not(.gone-l):not(.gone-r) > :nth-child(5) { animation-delay:.12s; }
+#more.open .mpane:not(.gone-l):not(.gone-r) > :nth-child(6) { animation-delay:.15s; }
 #more button {
   display:flex; align-items:center; gap:12px; border:none; background:none; color:var(--ink);
   font-size:14px; letter-spacing:.01em; padding:11px 14px; border-radius:11px; cursor:pointer;
   -webkit-tap-highlight-color:transparent; text-align:left;
 }
 #more button:active { background:rgba(22,22,22,.08); }
-#more .ic { width:18px; height:18px; }
+#more .ic { width:18px; height:18px; flex:none; }
+#more .mcat .chev { width:15px; height:15px; margin-left:auto; opacity:.35; }
+#more .mback {
+  font-size:10.5px; letter-spacing:.15em; text-transform:uppercase; font-weight:600;
+  opacity:.5; gap:8px; padding:10px 12px 7px;
+}
+#more .mback .ic { width:13px; height:13px; }
 .chip {
   width:34px; height:34px; border-radius:8px; cursor:pointer; border:1px solid rgba(22,22,22,.22);
   position:relative; flex:none; transition:transform .15s var(--spring);

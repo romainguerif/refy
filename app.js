@@ -154,7 +154,7 @@ const $ = id => document.getElementById(id);
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 const uid = () => (crypto.randomUUID ? crypto.randomUUID() : 'id-' + Date.now() + '-' + Math.random().toString(36).slice(2));
 const toWorld = (sx, sy) => ({ x: (sx - view.x) / view.s, y: (sy - view.y) / view.s });
-const MEASURED = { text: 1, todo: 1, palette: 1, link: 1, grille: 1, pomo: 1, shape: 1 }; // hauteur mesurée dans le DOM
+const MEASURED = { text: 1, todo: 1, palette: 1, link: 1, grille: 1, pomo: 1, shape: 1, album: 1 }; // hauteur mesurée dans le DOM
 const itemH = it => MEASURED[it.type] ? (it.el ? it.el.offsetHeight : it.w / 2) : it.w / it.ar;
 const itemCenter = it => ({ x: it.x + it.w / 2, y: it.y + itemH(it) / 2 });
 const HALF_PI = Math.PI / 2;
@@ -282,6 +282,8 @@ function serializeItem(it) {
   if (it.type === 'pomo') return { ...base, size: it.size,
     pomo: { dur: it.pomo.dur, left: Math.round(pomoLeft(it.pomo)), done: it.pomo.done, running: it.pomo.running, endAt: it.pomo.endAt } };
   if (it.type === 'shape') return { ...base, size: it.size, form: it.form, color: it.color, fill: it.fill, text: it.text };
+  if (it.type === 'album') return { ...base, size: it.size, name: it.name,
+    tracks: it.tracks.map(t => ({ board: t.board, ref: t.ref, title: t.title, bpm: t.bpm, bars: t.bars, meter: t.meter })) };
   if (it.type === 'grille') return { ...base, size: it.size, plan: it.plan };
   return base;
 }
@@ -379,6 +381,9 @@ function makeItemEl(it) {
     el.innerHTML = pomoMarkup();
   } else if (it.type === 'shape') {
     el.innerHTML = '<span class="tx"></span>';
+  } else if (it.type === 'album') {
+    el.innerHTML = '<span class="alname"></span><span class="almeta"></span>'
+      + '<span class="alarc"></span><span class="allist"></span>';
   }
   addHandles(el);
   if (it.type === 'todo') updateTodoDOM(it, el);
@@ -386,6 +391,7 @@ function makeItemEl(it) {
   if (it.type === 'grille') updateGrilleDOM(it, el);
   if (it.type === 'pomo') setTimeout(() => { updatePomoDOM(it); pomoSync(); }, 0);
   if (it.type === 'shape') updateShapeDOM(it, el);
+  if (it.type === 'album') updateAlbumDOM(it, el);
   return el;
 }
 
@@ -428,7 +434,7 @@ function renderItem(it) {
     tx.style.fontSize = it.size + 'px';
     tx.style.color = it.color;
     tx.classList.toggle('serif', !!it.serif);
-  } else if (it.type === 'todo' || it.type === 'palette' || it.type === 'link' || it.type === 'grille' || it.type === 'pomo' || it.type === 'shape') {
+  } else if (it.type === 'todo' || it.type === 'palette' || it.type === 'link' || it.type === 'grille' || it.type === 'pomo' || it.type === 'shape' || it.type === 'album') {
     it.el.style.fontSize = (it.size || it.w / 14) + 'px';
   }
 }
@@ -912,7 +918,7 @@ function arrangeBoard() {
   commitTextEdit();
   commitTodoEdit();
   // Les annotations (traits, textes) qui recouvrent un élément suivent cet élément.
-  const SOLID = { img: 1, todo: 1, palette: 1, link: 1, grille: 1, pomo: 1, shape: 1 };
+  const SOLID = { img: 1, todo: 1, palette: 1, link: 1, grille: 1, pomo: 1, shape: 1, album: 1 };
   const hosts = items.filter(i => SOLID[i.type]);
   const attached = new Map(); // annotation -> hôte
   for (const it of items) {
@@ -1618,6 +1624,7 @@ vp.addEventListener('pointerdown', e => {
         if (it.type === 'text') { select(it); editText(it); return; }
         if (it.type === 'link') { openLinkTarget(it); return; }
         if (it.type === 'grille') { select(it); openGrille(it); return; }
+        if (it.type === 'album') { select(it); openAlbum(it); return; }
         if (it.type === 'todo') {
           const row = e.target.closest('.trow:not(.tadd)');
           if (row) { select(it); editTodoRow(it, +row.dataset.i); return; }
@@ -2011,6 +2018,7 @@ $('more').addEventListener('click', e => {
     renderItem(it);
     editTodoRow(it, 0);
   }
+  else if (act === 'album') { const it = addAlbumItem(); select(it); scheduleSave(); openAlbum(it); }
   else if (act === 'dbx') dbxPanel();
   else if (act === 'shape') { const it = addShapeItem(); select(it); syncShapeBar(it); scheduleSave(); }
   else if (act === 'pomo') { const it = addPomoItem(); select(it); scheduleSave(); }
@@ -2304,6 +2312,12 @@ async function loadBoardState(state) {
             id: raw.id || uid(), type: 'pomo', x: raw.x, y: raw.y, w: raw.w,
             rot: isFinite(+raw.rot) ? +raw.rot : 0, size: +raw.size || 15,
             pomo: normPomo(raw.pomo),
+          });
+        } else if (type === 'album') {
+          addItem({
+            id: raw.id || uid(), type: 'album', x: raw.x, y: raw.y, w: raw.w,
+            rot: isFinite(+raw.rot) ? +raw.rot : 0, size: +raw.size || 15,
+            ...normAlbum(raw),
           });
         } else if (type === 'shape') {
           addItem({
@@ -2671,6 +2685,8 @@ async function importBoard(file) {
         ...common, type: 'todo', size: +raw.size || 15,
         entries: raw.entries.filter(x => x && typeof x.t === 'string').map(x => ({ t: x.t, done: !!x.done })),
       });
+    } else if (d.type === 'album') {
+      addItem({ ...common, type: 'album', size: +raw.size || 15, ...normAlbum(raw) });
     } else if (d.type === 'shape') {
       addItem({ ...common, type: 'shape', size: +raw.size || 16, ...normShape(raw) });
     } else if (d.type === 'pomo') {
@@ -2793,6 +2809,7 @@ document.addEventListener('keydown', e => {
     select(null);
     $('help').classList.add('hidden');
     if (!$('grille').classList.contains('hidden')) closeGrille();
+    if (!$('album').classList.contains('hidden')) { $('album').classList.add('hidden'); aview.it = null; }
     closePopovers();
     closeLibrary();
     closeCalendar();
@@ -4077,3 +4094,205 @@ $('dbx').addEventListener('click', e => {
   const fresh = await dbxReturn();
   if (dbxOn()) setTimeout(() => dbxSync(true), fresh ? 400 : 1500);
 })();
+
+/* ============================== album ==============================
+   Rassemble les grilles de morceau de tous les boards et sert à monter
+   des suites qui tiennent ensemble : un EP, un album, un set. */
+
+const AT = lang === 'fr' ? {
+  untitled: 'Nouvel album', tracks: 'titres', add: 'Ajouter un morceau', empty: 'Aucun morceau',
+  none: 'Aucune grille dans tes boards', search: 'Chercher…', total: 'total',
+  copy: 'Copier la tracklist', copied: 'Tracklist copiée', done: 'Terminé', edit: 'Monter',
+  gone: 'grille supprimée', jump: 'écart de tempo',
+} : {
+  untitled: 'New album', tracks: 'tracks', add: 'Add a track', empty: 'No tracks',
+  none: 'No song plan in your boards', search: 'Search…', total: 'total',
+  copy: 'Copy tracklist', copied: 'Tracklist copied', done: 'Done', edit: 'Arrange',
+  gone: 'plan deleted', jump: 'tempo jump',
+};
+
+const trackLen = t => t.bars * (60 / t.bpm) * (t.meter || 4);
+
+function addAlbumItem(at) {
+  const pos = at || toWorld(innerWidth / 2, innerHeight / 2);
+  const w = 260 / view.s;
+  const it = { id: uid(), type: 'album', x: pos.x - w / 2, y: pos.y - w / 6, w, rot: 0, size: w / 17,
+               name: AT.untitled, tracks: [] };
+  addItem(it);
+  return it;
+}
+function normAlbum(raw) {
+  return {
+    name: String((raw && raw.name) || AT.untitled).slice(0, 60),
+    tracks: ((raw && raw.tracks) || []).filter(t => t && t.title).map(t => ({
+      board: String(t.board || ''), ref: String(t.ref || ''),
+      title: String(t.title), bpm: +t.bpm || 120, bars: +t.bars || 0, meter: +t.meter || 4,
+    })),
+  };
+}
+
+/* ---------- le catalogue : toutes les grilles, board par board ---------- */
+async function albumCatalogue() {
+  const out = [];
+  for (const b of (library ? library.boards : [])) {
+    let list = [];
+    if (b.id === library.current) {
+      list = items.filter(i => i.type === 'grille').map(i => ({ id: i.id, plan: i.plan }));
+    } else {
+      let st = null;
+      try { st = await dbGetMeta('state-' + b.id); } catch (_) {}
+      list = ((st && st.items) || []).filter(r => r.type === 'grille' && r.plan)
+        .map(r => ({ id: r.id, plan: r.plan }));
+    }
+    if (!list.length) continue;
+    out.push({
+      board: b.name, boardId: b.id,
+      songs: list.map(x => ({
+        board: b.id, ref: x.id, title: x.plan.title,
+        bpm: +x.plan.bpm || 120, bars: +x.plan.bars || 0,
+        meter: (x.plan.meter && x.plan.meter[0]) || 4,
+        energy: x.plan.energy || [],
+      })),
+    });
+  }
+  return out;
+}
+
+/* ---------- la carte sur le board ---------- */
+function updateAlbumDOM(it, el) {
+  const root = el || it.el; if (!root) return;
+  const tot = it.tracks.reduce((s, t) => s + trackLen(t), 0);
+  root.querySelector('.alname').textContent = it.name;
+  root.querySelector('.almeta').textContent =
+    `${it.tracks.length} ${AT.tracks} · ${planTime(tot)}`;
+  root.querySelector('.allist').innerHTML = it.tracks.length
+    ? it.tracks.slice(0, 6).map((t, i) => `<i><b>${i + 1}</b><span>${esc(t.title)}</span><em>${t.bpm}</em></i>`).join('')
+      + (it.tracks.length > 6 ? `<i class="more">+${it.tracks.length - 6}</i>` : '')
+    : `<i class="more">${AT.empty}</i>`;
+  /* la courbe d'énergie de l'album : un trait par morceau, sa hauteur = son sommet */
+  const arc = root.querySelector('.alarc');
+  const peaks = it.tracks.map(t => t.peak == null ? .5 : t.peak);
+  arc.innerHTML = peaks.length > 1
+    ? peaks.map((v, i) => `<b style="left:${(i / peaks.length) * 100}%;width:${100 / peaks.length}%;height:${Math.round(18 + v * 82)}%"></b>`).join('')
+    : '';
+}
+
+/* ---------- le plein écran ---------- */
+const aview = { it: null, edit: false, cat: null, q: '' };
+
+function albumRows(it) {
+  return it.tracks.map((t, i) => {
+    const prev = it.tracks[i - 1];
+    const d = prev ? t.bpm - prev.bpm : 0;
+    const jump = Math.abs(d) > 6;
+    return `<div class="alrow${aview.edit ? ' ed' : ''}">
+      ${prev ? `<span class="aldelta${jump ? ' jump' : ''}" title="${AT.jump}">${d > 0 ? '+' : ''}${d || '='}</span>` : '<span class="aldelta"></span>'}
+      <span class="alno">${i + 1}</span>
+      <span class="altitle">${esc(t.title)}${t.bars ? '' : ` <i class="algone">${AT.gone}</i>`}</span>
+      <span class="albpm">${t.bpm}</span>
+      <span class="allen">${t.bars ? planTime(trackLen(t)) : '—'}</span>
+      ${aview.edit ? `<span class="alacts">
+        <button data-al="up" data-i="${i}">▲</button>
+        <button data-al="down" data-i="${i}">▼</button>
+        <button data-al="del" data-i="${i}">×</button></span>` : ''}
+    </div>`;
+  }).join('');
+}
+function albumPicker() {
+  const q = aview.q.toLowerCase();
+  const cat = (aview.cat || []).map(g => {
+    const songs = g.songs.filter(s => !q || s.title.toLowerCase().includes(q) || g.board.toLowerCase().includes(q));
+    if (!songs.length) return '';
+    return `<h4>${esc(g.board)}</h4>` + songs.map(s =>
+      `<button class="alpick" data-al="pick" data-b="${esc(s.board)}" data-r="${esc(s.ref)}">
+        <span>${esc(s.title)}</span><em>${s.bpm} BPM · ${planTime(trackLen(s))}</em></button>`).join('');
+  }).join('');
+  return `<div class="alpicker">
+    <input class="gin" id="alq" type="text" placeholder="${AT.search}" value="${esc(aview.q)}">
+    ${cat || `<p class="ghint">${AT.none}</p>`}
+  </div>`;
+}
+function renderAlbum() {
+  const it = aview.it;
+  const tot = it.tracks.reduce((s, t) => s + trackLen(t), 0);
+  $('album').innerHTML = `
+    <div class="ghead-bar">
+      <button class="gclose" title="${tr('gClose')}"><svg class="ic" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+      <span class="gtitle">${esc(it.name)}</span>
+      <span class="gsub">${it.tracks.length} ${AT.tracks} · ${planTime(tot)} ${AT.total}</span>
+    </div>
+    <div class="gbar2">
+      <span class="gspacer"></span>
+      <button class="gz" data-al="copy">${AT.copy}</button>
+      <button class="gz${aview.edit ? ' on' : ''}" data-al="mode">${aview.edit ? AT.done : AT.edit}</button>
+    </div>
+    <div class="gbody">
+      ${aview.edit ? `<div class="ged"><input class="gin" id="alname" type="text" value="${esc(it.name)}"></div>` : ''}
+      <div class="allines">${it.tracks.length ? albumRows(it) : `<p class="ghint">${AT.empty}</p>`}</div>
+      ${aview.edit ? albumPicker() : ''}
+    </div>`;
+  const q = document.getElementById('alq');
+  if (q) {
+    q.addEventListener('input', e => {
+      aview.q = e.target.value;
+      const p = $('album').querySelector('.alpicker');
+      const scroll = $('album').querySelector('.gbody').scrollTop;
+      p.outerHTML = albumPicker();
+      $('album').querySelector('.gbody').scrollTop = scroll;
+      const nq = document.getElementById('alq');
+      nq.focus(); nq.setSelectionRange(nq.value.length, nq.value.length);
+      nq.addEventListener('input', arguments.callee);
+    });
+  }
+  const nm = document.getElementById('alname');
+  if (nm) nm.addEventListener('input', e => {
+    it.name = e.target.value.slice(0, 60);
+    $('album').querySelector('.gtitle').textContent = it.name;
+    updateAlbumDOM(it); scheduleSave();
+  });
+}
+async function openAlbum(it) {
+  aview.it = it; aview.edit = false; aview.q = '';
+  aview.cat = await albumCatalogue();
+  /* on rafraîchit les infos depuis les grilles réelles : un tempo modifié suit */
+  const map = new Map();
+  for (const g of aview.cat) for (const s of g.songs) map.set(s.board + '|' + s.ref, s);
+  for (const t of it.tracks) {
+    const s = map.get(t.board + '|' + t.ref);
+    if (s) { t.title = s.title; t.bpm = s.bpm; t.bars = s.bars; t.meter = s.meter; t.peak = albumPeak(s.energy); }
+    else t.bars = 0;                      /* la grille n'existe plus */
+  }
+  renderAlbum();
+  $('album').classList.remove('hidden');
+  updateAlbumDOM(it);
+  scheduleSave();
+}
+const albumPeak = e => (e && e.length) ? Math.max(...e.map(p => +p.v || 0)) : .5;
+
+function albumText(it) {
+  const L = [it.name.toUpperCase(), ''];
+  it.tracks.forEach((t, i) => {
+    L.push(`${String(i + 1).padStart(2)}. ${t.title.padEnd(28)} ${String(t.bpm).padStart(3)} BPM   ${t.bars ? planTime(trackLen(t)) : '—'}`);
+  });
+  L.push('', `${it.tracks.length} ${AT.tracks} — ${planTime(it.tracks.reduce((s, t) => s + trackLen(t), 0))}`);
+  return L.join('\n');
+}
+
+$('album').addEventListener('click', e => {
+  const it = aview.it; if (!it) return;
+  if (e.target.closest('.gclose')) { $('album').classList.add('hidden'); aview.it = null; return; }
+  const b = e.target.closest('[data-al]'); if (!b) return;
+  const a = b.dataset.al, i = +b.dataset.i;
+  if (a === 'mode') { aview.edit = !aview.edit; renderAlbum(); return; }
+  if (a === 'copy') { navigator.clipboard.writeText(albumText(it)).then(() => toast(AT.copied)).catch(() => {}); return; }
+  if (a === 'up' && i > 0) { [it.tracks[i - 1], it.tracks[i]] = [it.tracks[i], it.tracks[i - 1]]; }
+  else if (a === 'down' && i < it.tracks.length - 1) { [it.tracks[i + 1], it.tracks[i]] = [it.tracks[i], it.tracks[i + 1]]; }
+  else if (a === 'del') it.tracks.splice(i, 1);
+  else if (a === 'pick') {
+    const s = (aview.cat || []).flatMap(g => g.songs).find(x => x.board === b.dataset.b && x.ref === b.dataset.r);
+    if (s) it.tracks.push({ board: s.board, ref: s.ref, title: s.title, bpm: s.bpm, bars: s.bars, meter: s.meter, peak: albumPeak(s.energy) });
+  } else return;
+  renderAlbum();
+  updateAlbumDOM(it);
+  scheduleSave();
+});

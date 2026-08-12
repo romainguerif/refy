@@ -283,7 +283,8 @@ function serializeItem(it) {
     pomo: { dur: it.pomo.dur, left: Math.round(pomoLeft(it.pomo)), done: it.pomo.done, running: it.pomo.running, endAt: it.pomo.endAt } };
   if (it.type === 'shape') return { ...base, size: it.size, form: it.form, color: it.color, fill: it.fill, text: it.text };
   if (it.type === 'album') return { ...base, size: it.size, name: it.name,
-    tracks: it.tracks.map(t => ({ board: t.board, ref: t.ref, title: t.title, bpm: t.bpm, bars: t.bars, meter: t.meter })) };
+    tracks: it.tracks.map(t => ({ board: t.board, ref: t.ref, title: t.title, bpm: t.bpm,
+                                  bars: t.bars, meter: t.meter, state: t.state, peak: t.peak })) };
   if (it.type === 'grille') return { ...base, size: it.size, plan: it.plan };
   return base;
 }
@@ -383,7 +384,8 @@ function makeItemEl(it) {
     el.innerHTML = '<span class="tx"></span>';
   } else if (it.type === 'album') {
     el.innerHTML = '<span class="alname"></span><span class="almeta"></span>'
-      + '<span class="alarc"></span><span class="allist"></span>';
+      + '<span class="alarc"></span><span class="allines"></span>'
+      + '<button class="aladd" data-al="add"></button>';
   }
   addHandles(el);
   if (it.type === 'todo') updateTodoDOM(it, el);
@@ -1624,7 +1626,12 @@ vp.addEventListener('pointerdown', e => {
         if (it.type === 'text') { select(it); editText(it); return; }
         if (it.type === 'link') { openLinkTarget(it); return; }
         if (it.type === 'grille') { select(it); openGrille(it); return; }
-        if (it.type === 'album') { select(it); openAlbum(it); return; }
+        /* le double-tape ne renomme que sur le titre : sinon deux appuis rapides
+           sur deux pastilles d'etat declencheraient un renommage */
+        if (it.type === 'album') {
+          if (e.target.closest('.alname')) { select(it); editAlbumName(it); }
+          return;
+        }
         if (it.type === 'todo') {
           const row = e.target.closest('.trow:not(.tadd)');
           if (row) { select(it); editTodoRow(it, +row.dataset.i); return; }
@@ -1667,6 +1674,12 @@ vp.addEventListener('pointerdown', e => {
         const add = e.target.closest('.trow.tadd');
         if (check) { const i = +check.closest('.trow').dataset.i; tap = () => toggleTodo(it, i); }
         else if (add) tap = () => { it.entries.push({ t: '', done: false }); updateTodoDOM(it); renderItem(it); editTodoRow(it, it.entries.length - 1); scheduleSave(); };
+      } else if (it.type === 'pomo') {
+        const b = e.target.closest('[data-p]');
+        if (b) { const a = b.dataset.p; tap = () => pomoAction(it, a); }
+      } else if (it.type === 'album') {
+        const b = e.target.closest('[data-al]');
+        if (b) { const a = b.dataset.al, i = +b.dataset.i; tap = () => albumAction(it, a, i); }
       } else if (it.type === 'palette') {
         const cell = e.target.closest('.pcell');
         if (cell) {
@@ -1976,7 +1989,7 @@ $('btn-text').addEventListener('click', () => {
 });
 
 /* ============================== popovers ============================== */
-const POPOVERS = ['more', 'swatches', 'penbar', 'adjust', 'shapebar', 'dbx'];
+const POPOVERS = ['more', 'swatches', 'penbar', 'adjust', 'shapebar', 'dbx', 'albumpick'];
 function openPopover(id) {
   for (const p of POPOVERS) $(p).classList.toggle('open', p === id);
 }
@@ -2018,7 +2031,7 @@ $('more').addEventListener('click', e => {
     renderItem(it);
     editTodoRow(it, 0);
   }
-  else if (act === 'album') { const it = addAlbumItem(); select(it); scheduleSave(); openAlbum(it); }
+  else if (act === 'album') { const it = addAlbumItem(); select(it); scheduleSave(); openAlbumPick(it); }
   else if (act === 'dbx') dbxPanel();
   else if (act === 'shape') { const it = addShapeItem(); select(it); syncShapeBar(it); scheduleSave(); }
   else if (act === 'pomo') { const it = addPomoItem(); select(it); scheduleSave(); }
@@ -2350,6 +2363,7 @@ async function loadBoardState(state) {
   }
   selectedArrow = null; linkFrom = null;
   drawArrows();
+  for (const it of items) if (it.type === 'album') albumRefresh(it);
   if (state && state.view && isFinite(state.view.s) && state.view.s > 0) {
     view.x = +state.view.x || 0; view.y = +state.view.y || 0; view.s = clamp(+state.view.s, MIN_S, MAX_S);
   } else {
@@ -2809,7 +2823,6 @@ document.addEventListener('keydown', e => {
     select(null);
     $('help').classList.add('hidden');
     if (!$('grille').classList.contains('hidden')) closeGrille();
-    if (!$('album').classList.contains('hidden')) { $('album').classList.add('hidden'); aview.it = null; }
     closePopovers();
     closeLibrary();
     closeCalendar();
@@ -4095,40 +4108,45 @@ $('dbx').addEventListener('click', e => {
   if (dbxOn()) setTimeout(() => dbxSync(true), fresh ? 400 : 1500);
 })();
 
+
 /* ============================== album ==============================
    Rassemble les grilles de morceau de tous les boards et sert à monter
-   des suites qui tiennent ensemble : un EP, un album, un set. */
+   des suites qui tiennent ensemble. Tout tient sur la carte : pas de
+   plein écran, les commandes n'apparaissent que sur sélection. */
 
+const AL_STATES = ['idee', 'build', 'done'];
 const AT = lang === 'fr' ? {
-  untitled: 'Nouvel album', tracks: 'titres', add: 'Ajouter un morceau', empty: 'Aucun morceau',
-  none: 'Aucune grille dans tes boards', search: 'Chercher…', total: 'total',
-  copy: 'Copier la tracklist', copied: 'Tracklist copiée', done: 'Terminé', edit: 'Monter',
-  gone: 'grille supprimée', jump: 'écart de tempo',
+  untitled: 'Nouvel album', tracks: 'titres', track: 'titre', empty: 'Aucun morceau',
+  add: '+ ajouter un morceau', none: 'Aucune grille dans tes boards', search: 'Chercher…',
+  copied: 'Tracklist copiée', gone: 'grille supprimée',
+  idee: 'idée, boucle', build: 'construction — 95 %', done: 'mix et master faits',
 } : {
-  untitled: 'New album', tracks: 'tracks', add: 'Add a track', empty: 'No tracks',
-  none: 'No song plan in your boards', search: 'Search…', total: 'total',
-  copy: 'Copy tracklist', copied: 'Tracklist copied', done: 'Done', edit: 'Arrange',
-  gone: 'plan deleted', jump: 'tempo jump',
+  untitled: 'New album', tracks: 'tracks', track: 'track', empty: 'No tracks',
+  add: '+ add a track', none: 'No song plan in your boards', search: 'Search…',
+  copied: 'Tracklist copied', gone: 'plan deleted',
+  idee: 'idea, loop', build: 'building — 95%', done: 'mixed and mastered',
 };
 
 const trackLen = t => t.bars * (60 / t.bpm) * (t.meter || 4);
+const albumPeak = e => (e && e.length) ? Math.max(...e.map(p => +p.v || 0)) : .5;
 
-function addAlbumItem(at) {
-  const pos = at || toWorld(innerWidth / 2, innerHeight / 2);
-  const w = 260 / view.s;
-  const it = { id: uid(), type: 'album', x: pos.x - w / 2, y: pos.y - w / 6, w, rot: 0, size: w / 17,
-               name: AT.untitled, tracks: [] };
-  addItem(it);
-  return it;
-}
 function normAlbum(raw) {
   return {
     name: String((raw && raw.name) || AT.untitled).slice(0, 60),
     tracks: ((raw && raw.tracks) || []).filter(t => t && t.title).map(t => ({
       board: String(t.board || ''), ref: String(t.ref || ''),
       title: String(t.title), bpm: +t.bpm || 120, bars: +t.bars || 0, meter: +t.meter || 4,
+      state: clamp(Math.round(+t.state) || 0, 0, 2), peak: +t.peak || .5,
     })),
   };
+}
+function addAlbumItem(at) {
+  const pos = at || toWorld(innerWidth / 2, innerHeight / 2);
+  const w = 300 / view.s;
+  const it = { id: uid(), type: 'album', x: pos.x - w / 2, y: pos.y - w / 6, w, rot: 0, size: w / 19,
+               name: AT.untitled, tracks: [] };
+  addItem(it);
+  return it;
 }
 
 /* ---------- le catalogue : toutes les grilles, board par board ---------- */
@@ -4141,8 +4159,7 @@ async function albumCatalogue() {
     } else {
       let st = null;
       try { st = await dbGetMeta('state-' + b.id); } catch (_) {}
-      list = ((st && st.items) || []).filter(r => r.type === 'grille' && r.plan)
-        .map(r => ({ id: r.id, plan: r.plan }));
+      list = ((st && st.items) || []).filter(r => r.type === 'grille' && r.plan).map(r => ({ id: r.id, plan: r.plan }));
     }
     if (!list.length) continue;
     out.push({
@@ -4150,149 +4167,134 @@ async function albumCatalogue() {
       songs: list.map(x => ({
         board: b.id, ref: x.id, title: x.plan.title,
         bpm: +x.plan.bpm || 120, bars: +x.plan.bars || 0,
-        meter: (x.plan.meter && x.plan.meter[0]) || 4,
-        energy: x.plan.energy || [],
+        meter: (x.plan.meter && x.plan.meter[0]) || 4, energy: x.plan.energy || [],
       })),
     });
   }
   return out;
 }
+/* les infos suivent les grilles réelles : un tempo modifié se répercute */
+async function albumRefresh(it) {
+  const cat = await albumCatalogue();
+  const map = new Map();
+  for (const g of cat) for (const s of g.songs) map.set(s.board + '|' + s.ref, s);
+  let changed = false;
+  for (const t of it.tracks) {
+    const s = map.get(t.board + '|' + t.ref);
+    if (s) {
+      if (t.title !== s.title || t.bpm !== s.bpm || t.bars !== s.bars) changed = true;
+      t.title = s.title; t.bpm = s.bpm; t.bars = s.bars; t.meter = s.meter; t.peak = albumPeak(s.energy);
+    } else if (t.bars) { t.bars = 0; changed = true; }
+  }
+  if (changed) { updateAlbumDOM(it); scheduleSave(); }
+  return cat;
+}
 
-/* ---------- la carte sur le board ---------- */
+/* ---------- la carte ---------- */
 function updateAlbumDOM(it, el) {
   const root = el || it.el; if (!root) return;
   const tot = it.tracks.reduce((s, t) => s + trackLen(t), 0);
   root.querySelector('.alname').textContent = it.name;
   root.querySelector('.almeta').textContent =
-    `${it.tracks.length} ${AT.tracks} · ${planTime(tot)}`;
-  root.querySelector('.allist').innerHTML = it.tracks.length
-    ? it.tracks.slice(0, 6).map((t, i) => `<i><b>${i + 1}</b><span>${esc(t.title)}</span><em>${t.bpm}</em></i>`).join('')
-      + (it.tracks.length > 6 ? `<i class="more">+${it.tracks.length - 6}</i>` : '')
-    : `<i class="more">${AT.empty}</i>`;
-  /* la courbe d'énergie de l'album : un trait par morceau, sa hauteur = son sommet */
+    `${it.tracks.length} ${it.tracks.length > 1 ? AT.tracks : AT.track} · ${planTime(tot)}`;
+
   const arc = root.querySelector('.alarc');
   const peaks = it.tracks.map(t => t.peak == null ? .5 : t.peak);
   arc.innerHTML = peaks.length > 1
-    ? peaks.map((v, i) => `<b style="left:${(i / peaks.length) * 100}%;width:${100 / peaks.length}%;height:${Math.round(18 + v * 82)}%"></b>`).join('')
+    ? peaks.map((v, i) => `<b style="left:${(i / peaks.length) * 100}%;width:calc(${100 / peaks.length}% - 2px);height:${Math.round(16 + v * 84)}%"></b>`).join('')
     : '';
-}
 
-/* ---------- le plein écran ---------- */
-const aview = { it: null, edit: false, cat: null, q: '' };
-
-function albumRows(it) {
-  return it.tracks.map((t, i) => {
+  root.querySelector('.allines').innerHTML = it.tracks.length ? it.tracks.map((t, i) => {
     const prev = it.tracks[i - 1];
     const d = prev ? t.bpm - prev.bpm : 0;
-    const jump = Math.abs(d) > 6;
-    return `<div class="alrow${aview.edit ? ' ed' : ''}">
-      ${prev ? `<span class="aldelta${jump ? ' jump' : ''}" title="${AT.jump}">${d > 0 ? '+' : ''}${d || '='}</span>` : '<span class="aldelta"></span>'}
-      <span class="alno">${i + 1}</span>
-      <span class="altitle">${esc(t.title)}${t.bars ? '' : ` <i class="algone">${AT.gone}</i>`}</span>
-      <span class="albpm">${t.bpm}</span>
-      <span class="allen">${t.bars ? planTime(trackLen(t)) : '—'}</span>
-      ${aview.edit ? `<span class="alacts">
-        <button data-al="up" data-i="${i}">▲</button>
-        <button data-al="down" data-i="${i}">▼</button>
-        <button data-al="del" data-i="${i}">×</button></span>` : ''}
-    </div>`;
-  }).join('');
+    const jump = prev && Math.abs(d) > 6;
+    return `<span class="alrow">
+      <b class="aldot s${t.state}" data-al="state" data-i="${i}" title="${AT[AL_STATES[t.state]]}"></b>
+      <b class="alno">${i + 1}</b>
+      <b class="altitle">${esc(t.title)}${t.bars ? '' : ` <i>${AT.gone}</i>`}</b>
+      <b class="albpm${jump ? ' jump' : ''}">${t.bpm}${prev ? `<i>${d > 0 ? '+' : ''}${d || '='}</i>` : ''}</b>
+      <b class="allen">${t.bars ? planTime(trackLen(t)) : '—'}</b>
+      <b class="alacts"><i data-al="up" data-i="${i}">▲</i><i data-al="down" data-i="${i}">▼</i><i data-al="del" data-i="${i}">×</i></b>
+    </span>`;
+  }).join('') : `<span class="alempty">${AT.empty}</span>`;
+  root.querySelector('.aladd').textContent = AT.add;
 }
-function albumPicker() {
-  const q = aview.q.toLowerCase();
-  const cat = (aview.cat || []).map(g => {
+
+/* ---------- le choix d'un morceau : un popover, pas un plein écran ---------- */
+let alPick = { it: null, cat: null, q: '' };
+function albumPickHtml() {
+  const q = alPick.q.toLowerCase();
+  const body = (alPick.cat || []).map(g => {
     const songs = g.songs.filter(s => !q || s.title.toLowerCase().includes(q) || g.board.toLowerCase().includes(q));
     if (!songs.length) return '';
     return `<h4>${esc(g.board)}</h4>` + songs.map(s =>
-      `<button class="alpick" data-al="pick" data-b="${esc(s.board)}" data-r="${esc(s.ref)}">
-        <span>${esc(s.title)}</span><em>${s.bpm} BPM · ${planTime(trackLen(s))}</em></button>`).join('');
+      `<button class="alpick" data-b="${esc(s.board)}" data-r="${esc(s.ref)}">
+        <span>${esc(s.title)}</span><em>${s.bpm} · ${planTime(trackLen(s))}</em></button>`).join('');
   }).join('');
-  return `<div class="alpicker">
-    <input class="gin" id="alq" type="text" placeholder="${AT.search}" value="${esc(aview.q)}">
-    ${cat || `<p class="ghint">${AT.none}</p>`}
-  </div>`;
+  return `<input class="alq" type="text" placeholder="${AT.search}" value="${esc(alPick.q)}">`
+    + (body || `<p class="alnone">${AT.none}</p>`);
 }
-function renderAlbum() {
-  const it = aview.it;
-  const tot = it.tracks.reduce((s, t) => s + trackLen(t), 0);
-  $('album').innerHTML = `
-    <div class="ghead-bar">
-      <button class="gclose" title="${tr('gClose')}"><svg class="ic" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
-      <span class="gtitle">${esc(it.name)}</span>
-      <span class="gsub">${it.tracks.length} ${AT.tracks} · ${planTime(tot)} ${AT.total}</span>
-    </div>
-    <div class="gbar2">
-      <span class="gspacer"></span>
-      <button class="gz" data-al="copy">${AT.copy}</button>
-      <button class="gz${aview.edit ? ' on' : ''}" data-al="mode">${aview.edit ? AT.done : AT.edit}</button>
-    </div>
-    <div class="gbody">
-      ${aview.edit ? `<div class="ged"><input class="gin" id="alname" type="text" value="${esc(it.name)}"></div>` : ''}
-      <div class="allines">${it.tracks.length ? albumRows(it) : `<p class="ghint">${AT.empty}</p>`}</div>
-      ${aview.edit ? albumPicker() : ''}
-    </div>`;
-  const q = document.getElementById('alq');
-  if (q) {
-    q.addEventListener('input', e => {
-      aview.q = e.target.value;
-      const p = $('album').querySelector('.alpicker');
-      const scroll = $('album').querySelector('.gbody').scrollTop;
-      p.outerHTML = albumPicker();
-      $('album').querySelector('.gbody').scrollTop = scroll;
-      const nq = document.getElementById('alq');
-      nq.focus(); nq.setSelectionRange(nq.value.length, nq.value.length);
-      nq.addEventListener('input', arguments.callee);
-    });
-  }
-  const nm = document.getElementById('alname');
-  if (nm) nm.addEventListener('input', e => {
-    it.name = e.target.value.slice(0, 60);
-    $('album').querySelector('.gtitle').textContent = it.name;
-    updateAlbumDOM(it); scheduleSave();
-  });
+async function openAlbumPick(it) {
+  alPick = { it, cat: await albumCatalogue(), q: '' };
+  const bar = $('albumpick');
+  bar.innerHTML = albumPickHtml();
+  closePopovers('albumpick');
+  bar.classList.add('open');
 }
-async function openAlbum(it) {
-  aview.it = it; aview.edit = false; aview.q = '';
-  aview.cat = await albumCatalogue();
-  /* on rafraîchit les infos depuis les grilles réelles : un tempo modifié suit */
-  const map = new Map();
-  for (const g of aview.cat) for (const s of g.songs) map.set(s.board + '|' + s.ref, s);
-  for (const t of it.tracks) {
-    const s = map.get(t.board + '|' + t.ref);
-    if (s) { t.title = s.title; t.bpm = s.bpm; t.bars = s.bars; t.meter = s.meter; t.peak = albumPeak(s.energy); }
-    else t.bars = 0;                      /* la grille n'existe plus */
-  }
-  renderAlbum();
-  $('album').classList.remove('hidden');
+$('albumpick').addEventListener('input', e => {
+  if (!e.target.classList.contains('alq')) return;
+  alPick.q = e.target.value;
+  const bar = $('albumpick');
+  const pos = e.target.selectionStart;
+  bar.innerHTML = albumPickHtml();
+  const q = bar.querySelector('.alq');
+  q.focus(); q.setSelectionRange(pos, pos);
+});
+$('albumpick').addEventListener('click', e => {
+  const b = e.target.closest('.alpick'); if (!b || !alPick.it) return;
+  const s = (alPick.cat || []).flatMap(g => g.songs).find(x => x.board === b.dataset.b && x.ref === b.dataset.r);
+  if (!s) return;
+  alPick.it.tracks.push({ board: s.board, ref: s.ref, title: s.title, bpm: s.bpm, bars: s.bars,
+                          meter: s.meter, state: 0, peak: albumPeak(s.energy) });
+  updateAlbumDOM(alPick.it);
+  renderItem(alPick.it);
+  scheduleSave();
+});
+
+/* ---------- les gestes sur la carte ---------- */
+function albumAction(it, a, i) {
+  if (a === 'add') { openAlbumPick(it); return; }
+  if (a === 'state') it.tracks[i].state = (it.tracks[i].state + 1) % 3;
+  else if (a === 'up' && i > 0) [it.tracks[i - 1], it.tracks[i]] = [it.tracks[i], it.tracks[i - 1]];
+  else if (a === 'down' && i < it.tracks.length - 1) [it.tracks[i + 1], it.tracks[i]] = [it.tracks[i], it.tracks[i + 1]];
+  else if (a === 'del') it.tracks.splice(i, 1);
+  else return;
   updateAlbumDOM(it);
+  renderItem(it);
   scheduleSave();
 }
-const albumPeak = e => (e && e.length) ? Math.max(...e.map(p => +p.v || 0)) : .5;
-
 function albumText(it) {
+  const mark = ['·', '~', '✓'];
   const L = [it.name.toUpperCase(), ''];
-  it.tracks.forEach((t, i) => {
-    L.push(`${String(i + 1).padStart(2)}. ${t.title.padEnd(28)} ${String(t.bpm).padStart(3)} BPM   ${t.bars ? planTime(trackLen(t)) : '—'}`);
-  });
+  it.tracks.forEach((t, i) => L.push(
+    `${mark[t.state]} ${String(i + 1).padStart(2)}. ${t.title.padEnd(26)} ${String(t.bpm).padStart(3)} BPM  ${t.bars ? planTime(trackLen(t)) : '—'}`));
   L.push('', `${it.tracks.length} ${AT.tracks} — ${planTime(it.tracks.reduce((s, t) => s + trackLen(t), 0))}`);
   return L.join('\n');
 }
-
-$('album').addEventListener('click', e => {
-  const it = aview.it; if (!it) return;
-  if (e.target.closest('.gclose')) { $('album').classList.add('hidden'); aview.it = null; return; }
-  const b = e.target.closest('[data-al]'); if (!b) return;
-  const a = b.dataset.al, i = +b.dataset.i;
-  if (a === 'mode') { aview.edit = !aview.edit; renderAlbum(); return; }
-  if (a === 'copy') { navigator.clipboard.writeText(albumText(it)).then(() => toast(AT.copied)).catch(() => {}); return; }
-  if (a === 'up' && i > 0) { [it.tracks[i - 1], it.tracks[i]] = [it.tracks[i], it.tracks[i - 1]]; }
-  else if (a === 'down' && i < it.tracks.length - 1) { [it.tracks[i + 1], it.tracks[i]] = [it.tracks[i], it.tracks[i + 1]]; }
-  else if (a === 'del') it.tracks.splice(i, 1);
-  else if (a === 'pick') {
-    const s = (aview.cat || []).flatMap(g => g.songs).find(x => x.board === b.dataset.b && x.ref === b.dataset.r);
-    if (s) it.tracks.push({ board: s.board, ref: s.ref, title: s.title, bpm: s.bpm, bars: s.bars, meter: s.meter, peak: albumPeak(s.energy) });
-  } else return;
-  renderAlbum();
-  updateAlbumDOM(it);
-  scheduleSave();
-});
+/* double-tape sur le titre : on le renomme sur place */
+function editAlbumName(it) {
+  if (locked) return;
+  commitTextEdit(); commitTodoEdit();
+  const el = it.el.querySelector('.alname');
+  setEditable(el);
+  el.focus();
+  const range = document.createRange();
+  range.selectNodeContents(el);
+  const sel = getSelection(); sel.removeAllRanges(); sel.addRange(range);
+  el.addEventListener('blur', () => {
+    el.removeAttribute('contenteditable');
+    it.name = (el.innerText || '').replace(/\u00a0/g, ' ').trim().slice(0, 60) || AT.untitled;
+    updateAlbumDOM(it);
+    scheduleSave();
+  }, { once: true });
+}

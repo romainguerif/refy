@@ -741,50 +741,52 @@ body.dropping #drop-overlay { display:flex; }
 .dbx-dot.bad { background:#c8553d; }
 @keyframes dpulse { 0%,100% { opacity:.35; } 50% { opacity:1; } }
 
-/* ---------- album : la carte ---------- */
-.item.album { padding:.7em .8em .8em; }
-.item.album .alname { display:block; font-size:1.15em; font-weight:600; line-height:1.2; word-break:break-word; }
-.item.album .almeta { display:block; margin-top:.15em; font-size:.72em; color:var(--ink-soft);
+/* ---------- album ---------- */
+.item.album { padding:.7em .8em .75em; }
+.item.album .alname { display:block; font-size:1.2em; font-weight:600; line-height:1.2;
+  word-break:break-word; outline:none; }
+.item.album .almeta { display:block; margin-top:.1em; font-size:.72em; color:var(--ink-soft);
   font-variant-numeric:tabular-nums; }
-/* la dramaturgie de l'album : une barre par morceau, sa hauteur est son sommet d'energie */
-.item.album .alarc { position:relative; display:block; height:2.2em; margin:.6em 0 .5em; }
-.item.album .alarc b { position:absolute; bottom:0; background:var(--ink); opacity:.22; border-radius:.06em .06em 0 0;
-  transform-origin:50% 100%; animation:alrise .5s var(--spring) both; }
-.item.album .alarc b:nth-child(2n) { opacity:.3; }
-@keyframes alrise { from { transform:scaleY(.2); opacity:0; } }
-.item.album .allist i { display:flex; align-items:baseline; gap:.5em; font-size:.82em; padding:.12em 0;
-  border-top:1px solid var(--hair); }
-.item.album .allist i:first-child { border-top:0; }
-.item.album .allist b { font-weight:500; color:var(--ink-soft); font-size:.85em; min-width:1em;
+/* la dramaturgie : une barre par morceau, sa hauteur est son sommet d'energie */
+.item.album .alarc { position:relative; display:block; height:2em; margin:.55em 0 .45em; }
+.item.album .alarc b { position:absolute; bottom:0; background:var(--ink); opacity:.2;
+  border-radius:.06em .06em 0 0; animation:alrise .5s var(--spring) both; }
+.item.album .alarc b:nth-child(2n) { opacity:.28; }
+@keyframes alrise { from { transform:scaleY(.15); opacity:0; } }
+.item.album .allines { display:block; }
+.alrow { display:flex; align-items:center; gap:.45em; padding:.3em 0; border-top:1px solid var(--hair);
   font-variant-numeric:tabular-nums; }
-.item.album .allist span { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.item.album .allist em { font-style:normal; color:var(--ink-soft); font-variant-numeric:tabular-nums; font-size:.85em; }
-.item.album .allist .more { color:var(--ink-soft); font-size:.78em; justify-content:center; }
+.aldot { flex:none; width:.62em; height:.62em; border-radius:50%; cursor:pointer;
+  border:.11em solid var(--ink-soft); background:transparent; transition:background .25s ease, border-color .25s ease; }
+.aldot.s1 { background:#D9A66B; border-color:#A9752F; }
+.aldot.s2 { background:#8FB394; border-color:#4C6552; }
+.alno { flex:none; width:1.1em; font-size:.72em; color:var(--ink-soft); }
+.altitle { flex:1; min-width:0; font-size:.9em; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.altitle i { font-style:normal; font-size:.7em; color:var(--ink-soft); text-transform:uppercase; letter-spacing:.08em; }
+.albpm { flex:none; font-size:.72em; color:var(--ink-soft); }
+.albpm i { font-style:normal; margin-left:.25em; opacity:.55; }
+.albpm.jump i { opacity:1; color:var(--ink); font-weight:600; }
+.allen { flex:none; font-size:.75em; }
+.alacts { flex:none; display:none; gap:.1em; }
+.item.album.selected .alacts { display:flex; }
+.alacts i { font-style:normal; width:1.25em; height:1.25em; line-height:1.15em; text-align:center;
+  font-size:.72em; border:1px solid var(--hair); border-radius:.2em; color:var(--ink-soft); cursor:pointer; }
+.alempty { display:block; padding:.5em 0; font-size:.8em; color:var(--ink-soft); border-top:1px solid var(--hair); }
+.aladd { display:block; width:100%; margin-top:.45em; padding:.4em; background:none; cursor:pointer;
+  border:1px dashed var(--hair); border-radius:.3em; color:var(--ink-soft); font:inherit; font-size:.75em; }
 
-/* ---------- album : le plein ecran ---------- */
-#album {
-  position:fixed; inset:0; z-index:250; background:#0d0d0e; color:#ececec;
-  display:flex; flex-direction:column; animation:fade .25s ease; font-variant-numeric:tabular-nums;
-}
-#album.hidden { display:none; }
-.allines { padding:14px 16px 0; }
-.alrow { display:flex; align-items:baseline; gap:10px; padding:11px 0; border-bottom:1px solid #232325; }
-.aldelta { flex:0 0 34px; font-size:11px; color:#5c5c5e; text-align:right; }
-.aldelta.jump { color:#ececec; }
-.alno { flex:0 0 20px; font-size:12px; color:#5c5c5e; }
-.altitle { flex:1; font-size:16px; font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.algone { font-size:10px; font-style:normal; color:#8e8e90; text-transform:uppercase; letter-spacing:.1em; }
-.albpm { flex:0 0 54px; font-size:12px; color:#8e8e90; text-align:right; }
-.allen { flex:0 0 46px; font-size:13px; text-align:right; }
-.alacts { flex:0 0 auto; display:flex; gap:2px; }
-.alacts button { background:none; border:1px solid #2e2e30; border-radius:2px; color:#8e8e90;
-  font:inherit; font-size:12px; width:28px; height:28px; cursor:pointer; }
-.alacts button:active { color:#ececec; }
-.alpicker { padding:22px 16px 40px; }
-.alpicker h4 { font-size:11px; letter-spacing:.14em; text-transform:uppercase; color:#8e8e90;
-  margin:18px 0 6px; font-weight:600; }
-.alpick { display:flex; align-items:baseline; gap:10px; width:100%; text-align:left; background:none;
-  border:0; border-bottom:1px solid #232325; color:inherit; font:inherit; padding:10px 2px; cursor:pointer; }
-.alpick span { flex:1; font-size:15px; }
-.alpick em { font-style:normal; font-size:11px; color:#8e8e90; }
-.alpick:active { background:rgba(255,255,255,.05); }
+/* le choix d'un morceau, en popover */
+#albumpick { display:none; flex-direction:column; gap:.15rem; min-width:15rem;
+  max-width:min(92vw,22rem); max-height:60vh; overflow-y:auto; }
+#albumpick.open { display:flex; }
+#albumpick .alq { background:rgba(255,255,255,.1); border:0; border-radius:.35rem; color:inherit;
+  font:inherit; font-size:.9rem; padding:.45rem .6rem; margin-bottom:.2rem; }
+#albumpick .alq:focus { outline:1px solid rgba(255,255,255,.35); }
+#albumpick h4 { font-size:.66rem; letter-spacing:.14em; text-transform:uppercase; opacity:.5;
+  margin:.5rem 0 .1rem; font-weight:600; }
+#albumpick .alpick { display:flex; align-items:baseline; gap:.5rem; width:100%; text-align:left;
+  background:none; border:0; color:inherit; font:inherit; padding:.42rem .3rem; border-radius:.3rem; cursor:pointer; }
+#albumpick .alpick:active { background:rgba(255,255,255,.12); }
+#albumpick .alpick span { flex:1; font-size:.9rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+#albumpick .alpick em { font-style:normal; font-size:.72rem; opacity:.55; }
+#albumpick .alnone { font-size:.82rem; opacity:.6; padding:.4rem .3rem; }

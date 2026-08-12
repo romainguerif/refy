@@ -285,6 +285,7 @@ function serializeItem(it) {
   if (it.type === 'album') return { ...base, size: it.size, name: it.name,
     tracks: it.tracks.map(t => ({ board: t.board, ref: t.ref, title: t.title, bpm: t.bpm,
                                   bars: t.bars, meter: t.meter, state: t.state, peak: t.peak })) };
+  if (it.type === 'img' && it.hash) base.hash = it.hash;
   if (it.type === 'grille') return { ...base, size: it.size, plan: it.plan };
   return base;
 }
@@ -530,21 +531,38 @@ function loadBlobAsImage(blob) {
   });
 }
 
-/* Réduit les photos énormes (12 Mpx iPad…) pour éviter de saturer la mémoire. */
+/* Réduit les photos énormes (12 Mpx iPad…) et les réencode en WebP : à qualité
+   égale, environ un tiers de moins qu'un JPEG, et la transparence est gardée —
+   un seul format remplace donc l'ancienne alternative JPEG/PNG.
+   Filet de sécurité : si le résultat n'est pas plus léger, on garde l'original. */
+const WEBP_Q = 0.82;
+/* Un encodeur absent rend null, mais certains ne rappellent jamais : sans
+   délai de garde, l'import resterait figé pour toujours. */
+function encodeCanvas(canvas, type, q) {
+  return new Promise(resolve => {
+    let done = false;
+    const finish = b => { if (!done) { done = true; clearTimeout(t); resolve(b); } };
+    const t = setTimeout(() => finish(null), 8000);
+    try { canvas.toBlob(finish, type, q); } catch (_) { finish(null); }
+  });
+}
 async function normalizeImage(blob) {
   if (blob.type === 'image/svg+xml' || blob.type === 'image/gif') return blob;
   const info = await loadBlobAsImage(blob);
   try {
-    if (Math.max(info.w, info.h) <= MAX_DIM || !info.w || !info.h) return blob;
-    const f = MAX_DIM / Math.max(info.w, info.h);
+    if (!info.w || !info.h) return blob;
+    const f = Math.min(1, MAX_DIM / Math.max(info.w, info.h));
     const canvas = document.createElement('canvas');
     canvas.width = Math.round(info.w * f);
     canvas.height = Math.round(info.h * f);
     canvas.getContext('2d').drawImage(info.img, 0, 0, canvas.width, canvas.height);
-    const type = blob.type === 'image/jpeg' || blob.type === 'image/heic' || blob.type === 'image/heif'
-      ? 'image/jpeg' : 'image/png';         // PNG par défaut : préserve la transparence (webp, etc.)
-    const out = await new Promise(r => canvas.toBlob(r, type, 0.88));
-    return out || blob;
+    let out = await encodeCanvas(canvas, 'image/webp', WEBP_Q);
+    if (!out || !out.size) {                       /* navigateur sans encodeur WebP */
+      const type = /jpeg|heic|heif/.test(blob.type) ? 'image/jpeg' : 'image/png';
+      out = await encodeCanvas(canvas, type, 0.88);
+    }
+    if (!out) return blob;
+    return (f === 1 && out.size >= blob.size) ? blob : out;
   } finally {
     URL.revokeObjectURL(info.url);
   }
@@ -2292,7 +2310,7 @@ async function loadBoardState(state) {
             ar: raw.ar || (info.w / info.h || 1),
             rot: isFinite(+raw.rot) ? +raw.rot : 0, flip: !!raw.flip,
             filters: raw.filters || {},
-            blob, url: info.url,
+            blob, url: info.url, hash: raw.hash,
           });
         } else if (type === 'stroke' && Array.isArray(raw.pts)) {
           addItem({
@@ -3845,11 +3863,15 @@ const DT = lang === 'fr' ? {
   connect: 'Connecter Dropbox', off: 'Déconnecter', now: 'Synchroniser maintenant',
   on: 'Synchro active', syncing: 'Synchro…', ok: 'À jour', fail: 'Synchro en échec',
   offline: 'Hors ligne — reprise au retour du réseau', bye: 'Dropbox déconnecté',
+  used: 'utilisés', gc: 'Faire le ménage', cleaning: 'Ménage en cours…',
+  clean: 'Rien à retirer, tout sert', cleaned: (n, s) => `${n} image${n > 1 ? 's' : ''} retirée${n > 1 ? 's' : ''} — ${s} libérés`,
   conflict: 'Deux versions : la plus récente est gardée, l\u2019autre est copiée dans Dropbox',
 } : {
   connect: 'Connect Dropbox', off: 'Disconnect', now: 'Sync now',
   on: 'Sync on', syncing: 'Syncing…', ok: 'Up to date', fail: 'Sync failed',
   offline: 'Offline — will resume', bye: 'Dropbox disconnected',
+  used: 'used', gc: 'Clean up', cleaning: 'Cleaning…',
+  clean: 'Nothing to remove', cleaned: (n, s) => `${n} image${n > 1 ? 's' : ''} removed — ${s} freed`,
   conflict: 'Two versions: newest kept, the other copied to Dropbox',
 };
 
@@ -4084,14 +4106,92 @@ function dbxTouch() {
 document.addEventListener('visibilitychange', () => { if (!document.hidden) dbxSync(true); });
 window.addEventListener('online', () => dbxSync(true));
 
-/* ---------- le panneau : trois lignes, pas plus ---------- */
-function dbxPanel() {
+/* ---------- place occupée ---------- */
+const humanSize = n => n < 1024 ? n + ' o'
+  : n < 1048576 ? (n / 1024).toFixed(0) + ' Ko'
+  : n < 1073741824 ? (n / 1048576).toFixed(1) + ' Mo'
+  : (n / 1073741824).toFixed(2) + ' Go';
+
+async function storageInfo() {
+  let usage = 0, quota = 0;
+  try {
+    const e = await navigator.storage.estimate();
+    usage = e.usage || 0; quota = e.quota || 0;
+  } catch (_) {}
+  return { usage, quota, pct: quota ? Math.min(100, usage / quota * 100) : 0 };
+}
+
+/* Toutes les images encore référencées, tous boards confondus. */
+async function referencedHashes() {
+  const keep = new Set();
+  for (const b of (library ? library.boards : [])) {
+    let list = [];
+    if (b.id === library.current) list = items.map(serializeItem);
+    else { try { const st = await dbGetMeta('state-' + b.id); list = (st && st.items) || []; } catch (_) {} }
+    for (const r of list) if (r.type === 'img' || !r.type) {
+      const h = r.hash || (items.find(i => i.id === r.id) || {}).hash;
+      if (h) keep.add(h);
+    }
+  }
+  for (const it of items) if (it.type === 'img' && it.hash) keep.add(it.hash);
+  return keep;
+}
+
+/* Ménage : les images que plus aucun board ne réclame quittent Dropbox.
+   On synchronise d'abord, sinon un board pas encore récupéré verrait
+   ses images effacées. Et on épargne ce qui vient d'être déposé. */
+async function dbxGc() {
+  if (!dbxOn()) return { removed: 0, freed: 0 };
+  await dbxSync(true);
+  const keep = await referencedHashes();
+  let removed = 0, freed = 0;
+  let res = null;
+  try { res = await dbxRpc('files/list_folder', { path: '/img' }); }
+  catch (_) { return { removed: 0, freed: 0 }; }
+  const young = Date.now() - 24 * 3600 * 1000;
+  const doomed = [];
+  const walk = r => {
+    for (const e of (r.entries || [])) {
+      if (e['.tag'] !== 'file') continue;
+      if (keep.has(e.name)) continue;
+      if (Date.parse(e.server_modified) > young) continue;
+      doomed.push({ path: e.path_lower, size: e.size || 0 });
+    }
+  };
+  walk(res);
+  while (res && res.has_more) {
+    res = await dbxRpc('files/list_folder/continue', { cursor: res.cursor });
+    walk(res);
+  }
+  for (let i = 0; i < doomed.length; i += 100) {
+    const lot = doomed.slice(i, i + 100);
+    try {
+      await dbxRpc('files/delete_batch', { entries: lot.map(x => ({ path: x.path })) });
+      removed += lot.length;
+      freed += lot.reduce((s, x) => s + x.size, 0);
+    } catch (_) {}
+  }
+  /* on oublie aussi les empreintes retirées, sinon on croirait les avoir déjà envoyées */
+  const meta = dbxMeta();
+  for (const k of Object.keys(meta)) {
+    if (meta[k].imgs) meta[k].imgs = meta[k].imgs.filter(h => keep.has(h));
+  }
+  dbxSetMeta(meta);
+  return { removed, freed };
+}
+
+/* ---------- le panneau : stockage et synchro ---------- */
+async function dbxPanel() {
   const bar = $('dbx');
-  bar.innerHTML = dbxOn()
+  const st = await storageInfo();
+  const gauge = `<div class="dgauge"><i style="width:${st.pct.toFixed(1)}%"></i></div>
+    <span class="dhint">${humanSize(st.usage)}${st.quota ? ' / ' + humanSize(st.quota) : ''} ${DT.used}</span>`;
+  bar.innerHTML = gauge + (dbxOn()
     ? `<span class="dhint">${DT.on}</span>
        <button class="dbtn" data-db="now">${DT.now}</button>
+       <button class="dbtn" data-db="gc">${DT.gc}</button>
        <button class="dbtn quiet" data-db="off">${DT.off}</button>`
-    : `<button class="dbtn primary" data-db="on">${DT.connect}</button>`;
+    : `<button class="dbtn primary" data-db="on">${DT.connect}</button>`);
   closePopovers('dbx');
   bar.classList.add('open');
 }
@@ -4101,6 +4201,11 @@ $('dbx').addEventListener('click', e => {
   if (a === 'on') dbxConnect();
   else if (a === 'off') { dbxForget(); dbxPanel(); dbxStatus(''); toast(DT.bye); }
   else if (a === 'now') { closePopovers(); dbxSync(true); }
+  else if (a === 'gc') {
+    closePopovers(); toast(DT.cleaning);
+    dbxGc().then(r => toast(r.removed ? DT.cleaned(r.removed, humanSize(r.freed)) : DT.clean, 3500))
+           .catch(() => toast(DT.fail));
+  }
 });
 
 (async () => {

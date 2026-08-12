@@ -790,3 +790,8 @@ body.dropping #drop-overlay { display:flex; }
 #albumpick .alpick span { flex:1; font-size:.9rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 #albumpick .alpick em { font-style:normal; font-size:.72rem; opacity:.55; }
 #albumpick .alnone { font-size:.82rem; opacity:.6; padding:.4rem .3rem; }
+
+/* jauge de place occupée */
+.dgauge { height:.28rem; border-radius:.14rem; background:rgba(255,255,255,.14); overflow:hidden; margin:.1rem 0 .35rem; }
+.dgauge i { display:block; height:100%; background:var(--accent); border-radius:.14rem;
+  transition:width .6s var(--swift); }

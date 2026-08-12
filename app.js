@@ -220,10 +220,11 @@ function animateViewTo(tx, ty, ts) {
 }
 
 /* ============================== IndexedDB ============================== */
-const APP_V = 'v5.21';     /* affiche dans le diagnostic : sert a savoir quel code tourne */
+const APP_V = 'v5.22';     /* affiche dans le diagnostic : sert a savoir quel code tourne */
 let dbWhy = '';            /* raison precise du refus d'ouverture */
 let db = null;
 let saveBroken = '';
+let lastWitness = '';         /* etat des deux tiroirs au demarrage */
 let storageFragile = false;   /* le navigateur se reserve le droit de tout effacer */
 let bootError = '';        /* le stockage n'a pas repondu : on ne sauvegarde plus rien */
 /* Panne de stockage : on le dit fort, et on empêche toute écriture qui
@@ -3044,6 +3045,20 @@ async function boot() {
   renderLibrary();
   updateHint();
   ready = true;
+  /* Temoin : on ecrit un compteur dans les deux tiroirs. Au demarrage suivant,
+     s'ils ont disparu tous les deux, c'est le navigateur qui a vide le site ;
+     s'ils sont la et que les boards ont saute, c'est refy. */
+  try {
+    const idbW = await dbGetMeta('temoin');
+    let lsW = null;
+    try { lsW = JSON.parse(localStorage.getItem('refy.temoin') || 'null'); } catch (_) {}
+    lastWitness = 'base ' + (idbW ? 'n' + idbW.n : 'VIDE') + ' · local ' + (lsW ? 'n' + lsW.n : 'VIDE')
+      + ' · boards ' + library.boards.length;
+    const n = ((idbW && idbW.n) || (lsW && lsW.n) || 0) + 1;
+    const w = { n, at: Date.now(), boards: library.boards.length };
+    dbPutMeta('temoin', w).catch(() => {});
+    try { localStorage.setItem('refy.temoin', JSON.stringify(w)); } catch (_) {}
+  } catch (_) {}
   if (storageFragile) toast(tr('fragile'), 9000);
 }
 boot();
@@ -4259,6 +4274,11 @@ async function dbxPushLibrary() {
 async function dbxPullBoard(id, data) {
   const st = data || await dbxDownJson('/boards/' + id + '.json');
   if (!st || !Array.isArray(st.items)) return;
+  /* Un board distant vide ne remplace jamais un board local qui a du contenu.
+     C'est le seul chemin par lequel une synchro peut detruire du travail. */
+  const before = boardMeta(id);
+  const localCount = (id === library.current) ? items.length : ((before && before.count) || 0);
+  if (!st.items.length && localCount > 0) return;
   const target = boardMeta(id);
   if (!target) createBoard(st.name || 'Board', id);
   if (library.current !== id) await switchBoard(id);
@@ -4278,6 +4298,11 @@ async function dbxPullBoard(id, data) {
     } catch (_) {}
     try { await dbPutImage(raw.id, await dbxDown('/img/' + raw.hash)); } catch (_) {}
   }
+  /* filet : l'etat local part dans un coin avant d'etre remplace */
+  try {
+    const old = await dbGetMeta('state-' + id);
+    if (old && old.items && old.items.length) await dbPutMeta('avant-synchro-' + id, old);
+  } catch (_) {}
   clearBoardDOM();
   await loadBoardState({ v: 4, items: st.items, arrows: st.arrows, view: st.view, bg: st.bg });
   const b = boardMeta(id);
@@ -4308,7 +4333,7 @@ function dbxStatus(k) {
   dot.title = k === 'sync' ? DT.syncing : k === 'bad' ? DT.fail + (dbxWhy ? ' — ' + dbxWhy : '') : DT.ok;
 }
 async function dbxSync(full) {
-  if (!dbxOn() || dbxBusy || !library) return;
+  if (!dbxOn() || dbxBusy || !library || !ready || bootError) return;
   if (!navigator.onLine) { dbxWhy = DT.offline; dbxStatus('bad'); return; }
   dbxBusy = true; dbxStatus('sync');
   try {
@@ -4321,7 +4346,10 @@ async function dbxSync(full) {
         }
       }
     }
-    if (dbxDirty.size || full) { await dbxPushCurrent(); dbxDirty.clear(); }
+    /* on n'envoie un board vide que si c'est le resultat d'une vraie
+       modification : sinon un demarrage rate ecraserait le distant */
+    const worthPushing = items.length > 0 || dbxDirty.has(library.current);
+    if ((dbxDirty.size || full) && worthPushing) { await dbxPushCurrent(); dbxDirty.clear(); }
     dbxWhy = '';
     dbxStatus('');
   } catch (e) {
@@ -4355,7 +4383,7 @@ async function storageInfo() {
   } catch (_) {}
   try { persisted = await navigator.storage.persisted(); } catch (_) {}
   let base = 'ok';
-  const version = APP_V + (db ? ' · base v' + db.version : '');
+  const version = APP_V + (db ? ' · base v' + db.version : '') + (lastWitness ? ' · ' + lastWitness : '');
   if (!db) base = 'base fermée';
   else if (!db.objectStoreNames.contains('meta')) base = 'RAYON MANQUANT';
   else if (dbRepaired) base = 'réparée (' + dbRepaired + ')';

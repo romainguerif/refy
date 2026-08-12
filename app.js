@@ -235,7 +235,10 @@ function openDB() {
   return new Promise(res => {
     if (!('indexedDB' in window)) return res(null);
     let rq;
-    try { rq = indexedDB.open('refy', 1); } catch (e) { return res(null); }
+    /* Sans numéro : on ouvre la base telle qu'elle est. En exiger un revient à
+       exiger celui-là précisément — et une base déjà montée d'un cran (le rayon
+       audio) refuserait de s'ouvrir avec une erreur de version. */
+    try { rq = indexedDB.open('refy'); } catch (e) { return res(null); }
     rq.onupgradeneeded = () => {
       rq.result.createObjectStore('images');
       rq.result.createObjectStore('meta');
@@ -264,8 +267,24 @@ function openDB() {
           dbRepaired = missing.join(', ');
           res(dd);
         };
-        rq2.onerror = () => res(null);
-        rq2.onblocked = () => res(null);
+        /* La montée de version échoue si une autre fenêtre garde l'ancienne
+           ouverte. Ce n'est pas une raison pour perdre le board : on se rabat
+           sur la base telle quelle, seul l'audio manquera. */
+        const fallback = () => {
+          let rq3;
+          try { rq3 = indexedDB.open('refy'); } catch (e) { return res(null); }
+          rq3.onsuccess = () => {
+            const dd = rq3.result;
+            dd.onclose = () => { if (db === dd) db = null; };
+            dd.onversionchange = () => { dd.close(); if (db === dd) db = null; };
+            dbRepaired = 'sans ' + missing.join(', ');
+            res(dd);
+          };
+          rq3.onerror = () => res(null);
+          rq3.onblocked = () => res(null);
+        };
+        rq2.onerror = fallback;
+        rq2.onblocked = fallback;
         return;
       }
       d.onclose = () => { if (db === d) db = null; };       // Safari ferme la connexion en arrière-plan
@@ -4593,9 +4612,12 @@ const AUD = lang === 'fr' ? {
 };
 
 const AUDIO_MAX = 200 * 1024 * 1024;   /* au-delà ce n'est plus un format de travail */
-const dbPutAudio = (id, blob) => idb('audio', 'readwrite', s => s.put(blob, id));
-const dbGetAudio = id => idb('audio', 'readonly', s => s.get(id));
-const dbDelAudio = id => idb('audio', 'readwrite', s => s.delete(id));
+/* base pas encore ouverte : on laisse passer, idb l'ouvrira. Base ouverte
+   sans le rayon audio : on refuse proprement au lieu de faire tomber tout. */
+const hasAudioStore = () => !db || db.objectStoreNames.contains('audio');
+const dbPutAudio = (id, blob) => hasAudioStore() ? idb('audio', 'readwrite', s => s.put(blob, id)) : Promise.reject(new Error('no audio store'));
+const dbGetAudio = id => hasAudioStore() ? idb('audio', 'readonly', s => s.get(id)) : Promise.resolve(null);
+const dbDelAudio = id => hasAudioStore() ? idb('audio', 'readwrite', s => s.delete(id)) : Promise.resolve();
 
 /* ---------- Ogg Opus : encodeur et conteneur, sans bibliothèque ----------
    WebCodecs sait encoder de l'Opus, mais il rend des paquets bruts : sans

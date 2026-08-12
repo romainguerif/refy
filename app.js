@@ -214,6 +214,8 @@ function animateViewTo(tx, ty, ts) {
 
 /* ============================== IndexedDB ============================== */
 let db = null;
+let saveBroken = '';
+let dbRepaired = '';       /* rayons recréés au démarrage, pour le diagnostic */
 function openDB() {
   return new Promise(res => {
     if (!('indexedDB' in window)) return res(null);
@@ -225,6 +227,31 @@ function openDB() {
     };
     rq.onsuccess = () => {
       const d = rq.result;
+      /* Une base créée par une version plus ancienne peut n'avoir qu'une partie
+         des rayons. Comme le numéro de version n'a pas bougé, onupgradeneeded ne
+         se déclenche jamais et chaque écriture échoue en silence : on rouvre donc
+         un cran plus haut pour créer ce qui manque. */
+      const missing = ['images', 'meta'].filter(n => !d.objectStoreNames.contains(n));
+      if (missing.length) {
+        const next = d.version + 1;
+        d.close();
+        let rq2;
+        try { rq2 = indexedDB.open('refy', next); } catch (e) { return res(null); }
+        rq2.onupgradeneeded = () => {
+          const dd = rq2.result;
+          for (const n of missing) if (!dd.objectStoreNames.contains(n)) dd.createObjectStore(n);
+        };
+        rq2.onsuccess = () => {
+          const dd = rq2.result;
+          dd.onclose = () => { if (db === dd) db = null; };
+          dd.onversionchange = () => { dd.close(); if (db === dd) db = null; };
+          dbRepaired = missing.join(', ');
+          res(dd);
+        };
+        rq2.onerror = () => res(null);
+        rq2.onblocked = () => res(null);
+        return;
+      }
       d.onclose = () => { if (db === d) db = null; };       // Safari ferme la connexion en arrière-plan
       d.onversionchange = () => { d.close(); if (db === d) db = null; };
       res(d);
@@ -299,7 +326,7 @@ function saveState() {
   const b = library.boards.find(x => x.id === library.current);
   if (b) { b.updated = Date.now(); b.count = items.length; }
   Promise.all([dbPutMeta('state-' + library.current, state), dbPutMeta('library', library)])
-    .catch(() => toast(tr('saveFull')));
+    .catch(e => { saveBroken = String((e && e.name) || e); toast(tr('saveFull')); });
   if (typeof dbxTouch === 'function') dbxTouch();
 }
 
@@ -3870,6 +3897,7 @@ const DT = lang === 'fr' ? {
   connect: 'Connecter Dropbox', off: 'Déconnecter', now: 'Synchroniser maintenant',
   on: 'Synchro active', syncing: 'Synchro…', ok: 'À jour', fail: 'Synchro en échec',
   offline: 'Hors ligne — reprise au retour du réseau', bye: 'Dropbox déconnecté',
+  store: 'stockage', kept: 'permanent', evictable: 'EFFAÇABLE PAR LE SYSTÈME',
   used: 'utilisés', gc: 'Faire le ménage', cleaning: 'Ménage en cours…',
   clean: 'Rien à retirer, tout sert', cleaned: (n, s) => `${n} image${n > 1 ? 's' : ''} retirée${n > 1 ? 's' : ''} — ${s} libérés`,
   conflict: 'Deux versions : la plus récente est gardée, l\u2019autre est copiée dans Dropbox',
@@ -3877,6 +3905,7 @@ const DT = lang === 'fr' ? {
   connect: 'Connect Dropbox', off: 'Disconnect', now: 'Sync now',
   on: 'Sync on', syncing: 'Syncing…', ok: 'Up to date', fail: 'Sync failed',
   offline: 'Offline — will resume', bye: 'Dropbox disconnected',
+  store: 'storage', kept: 'persistent', evictable: 'CAN BE EVICTED',
   used: 'used', gc: 'Clean up', cleaning: 'Cleaning…',
   clean: 'Nothing to remove', cleaned: (n, s) => `${n} image${n > 1 ? 's' : ''} removed — ${s} freed`,
   conflict: 'Two versions: newest kept, the other copied to Dropbox',
@@ -4120,12 +4149,19 @@ const humanSize = n => n < 1024 ? n + ' o'
   : (n / 1073741824).toFixed(2) + ' Go';
 
 async function storageInfo() {
-  let usage = 0, quota = 0;
+  let usage = 0, quota = 0, persisted = false;
   try {
     const e = await navigator.storage.estimate();
     usage = e.usage || 0; quota = e.quota || 0;
   } catch (_) {}
-  return { usage, quota, pct: quota ? Math.min(100, usage / quota * 100) : 0 };
+  try { persisted = await navigator.storage.persisted(); } catch (_) {}
+  let base = 'ok';
+  if (!db) base = 'base fermée';
+  else if (!db.objectStoreNames.contains('meta')) base = 'RAYON MANQUANT';
+  else if (dbRepaired) base = 'réparée (' + dbRepaired + ')';
+  if (saveBroken) base = 'ÉCHEC : ' + saveBroken;
+  const boards = library ? library.boards.length : 0;
+  return { usage, quota, persisted, base, boards, pct: quota ? Math.min(100, usage / quota * 100) : 0 };
 }
 
 /* Toutes les images encore référencées, tous boards confondus. */
@@ -4192,7 +4228,8 @@ async function dbxPanel() {
   const bar = $('dbx');
   const st = await storageInfo();
   const gauge = `<div class="dgauge"><i style="width:${st.pct.toFixed(1)}%"></i></div>
-    <span class="dhint">${humanSize(st.usage)}${st.quota ? ' / ' + humanSize(st.quota) : ''} ${DT.used}</span>`;
+    <span class="dhint">${humanSize(st.usage)}${st.quota ? ' / ' + humanSize(st.quota) : ''} ${DT.used}</span>
+    <span class="dhint diag">${st.boards} board${st.boards > 1 ? 's' : ''} · ${DT.store} ${st.persisted ? DT.kept : DT.evictable} · ${st.base}</span>`;
   bar.innerHTML = gauge + (dbxOn()
     ? `<span class="dhint">${DT.on}</span>
        <button class="dbtn" data-db="now">${DT.now}</button>

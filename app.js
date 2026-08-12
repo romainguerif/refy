@@ -37,6 +37,8 @@ try {
 const lang = (navigator.language || 'en').toLowerCase().startsWith('fr') ? 'fr' : 'en';
 const LOCALE = lang === 'fr' ? 'fr-FR' : 'en-GB';
 const I18N_FR = {
+  mgPose: 'Poser', mgBoard: 'Le board', mgFiles: 'Fichiers',
+  mShape: 'Forme', mPomo: 'Pomodoro', mAlbum: 'Album', mDbx: 'Dropbox', mGrille: 'Grille de morceau',
   saveFull: 'Sauvegarde impossible (stockage plein ?)', imgFull: 'Image non sauvegardée (stockage plein ?)',
   badFormat: 'Format non pris en charge : ', cantImport: 'Impossible d\'importer ',
   pdfReading: 'Lecture du PDF…', pdfOffline: 'Import PDF impossible (connexion nécessaire la première fois)',
@@ -76,6 +78,8 @@ const I18N_FR = {
   selCount: n => `${n} sélectionné${n > 1 ? 's' : ''}`,
 };
 const I18N_EN = {
+  mgPose: 'Add', mgBoard: 'Board', mgFiles: 'Files',
+  mShape: 'Shape', mPomo: 'Pomodoro', mAlbum: 'Album', mDbx: 'Dropbox', mGrille: 'Song plan',
   saveFull: 'Could not save (storage full?)', imgFull: 'Image not saved (storage full?)',
   badFormat: 'Unsupported format: ', cantImport: 'Could not import ',
   pdfReading: 'Reading PDF…', pdfOffline: 'PDF import unavailable (needs a connection the first time)',
@@ -93,7 +97,6 @@ const I18N_EN = {
   gIn: 'in', gLast: 'last section', gBar: 'bar', gClose: 'Close',
   gBadPlan: 'This file is not a song plan',
   gAdded: n => `Plan “${n}” dropped — double-tap to open it`,
-  mGrille: 'Song plan',
   storageDown: 'Local storage unreachable: nothing will be saved',
   renameTitle: 'Rename', deleteTitle: 'Delete', linkTitle: 'Drop a link on the current board',
   linkPosed: n => `Link to “${n}” added — double-tap to open it`,

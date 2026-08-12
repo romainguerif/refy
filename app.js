@@ -1968,7 +1968,7 @@ $('btn-text').addEventListener('click', () => {
 });
 
 /* ============================== popovers ============================== */
-const POPOVERS = ['more', 'swatches', 'penbar', 'adjust', 'shapebar'];
+const POPOVERS = ['more', 'swatches', 'penbar', 'adjust', 'shapebar', 'dbx'];
 function openPopover(id) {
   for (const p of POPOVERS) $(p).classList.toggle('open', p === id);
 }
@@ -2010,6 +2010,7 @@ $('more').addEventListener('click', e => {
     renderItem(it);
     editTodoRow(it, 0);
   }
+  else if (act === 'dbx') dbxPanel();
   else if (act === 'shape') { const it = addShapeItem(); select(it); syncShapeBar(it); scheduleSave(); }
   else if (act === 'pomo') { const it = addPomoItem(); select(it); scheduleSave(); }
   else if (act === 'grille') {
@@ -2330,7 +2331,7 @@ async function loadBoardState(state) {
     const ids = new Set(items.map(i => i.id));
     arrows = state.arrows
       .filter(a => a && ids.has(a.from) && ids.has(a.to) && a.from !== a.to)
-      .map(a => ({ id: a.id || uid(), from: a.from, to: a.to, color: SHAPE_KEYS.includes(a.color) ? a.color : 'ink' }));
+      .map(a => ({ id: a.id || uid(), from: a.from, to: a.to, color: SHAPE_KEYS.includes(a.color) ? a.color : 'graphite' }));
   }
   selectedArrow = null; linkFrom = null;
   drawArrows();
@@ -2573,30 +2574,35 @@ async function deliverFile(blob, name) {
   a.remove();
   setTimeout(() => URL.revokeObjectURL(a.href), 30000);
 }
+/* Fabrique le fichier de sauvegarde du board courant. Le même sert au
+   téléchargement local et à l'envoi Dropbox : un seul format à maintenir. */
+async function boardBackup() {
+  const b = boardMeta(library.current);
+  const events = calendar.events.filter(e => e.boardId === library.current)
+    .map(e => ({ date: e.date, time: e.time, title: e.title }));
+  const parts = ['{"app":"refy","v":4,"name":' + JSON.stringify((b && b.name) || 'Board') +
+                 ',"view":' + JSON.stringify({ x: view.x, y: view.y, s: view.s }) +
+                 ',"bg":' + JSON.stringify(bg) +
+                 ',"arrows":' + JSON.stringify(arrows.map(a => ({ from: a.from, to: a.to, color: a.color }))) +
+                 ',"events":' + JSON.stringify(events) + ',"items":['];
+  for (let i = 0; i < items.length; i++) {
+    const it = items[i];
+    const entry = serializeItem(it);
+    if (it.type === 'img') entry.data = await blobToDataURL(it.blob);
+    parts.push((i ? ',' : '') + JSON.stringify(entry));
+  }
+  parts.push(']}');
+  const slug = ((b && b.name) || 'board').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 30) || 'board';
+  return { blob: new Blob(parts, { type: 'application/json' }), name: `refy-${slug}.refy.json`, slug };
+}
+
 async function exportBoard() {
   if (!items.length) { toast(tr('nothingExport')); return; }
   toast(tr('backupWorking'));
   try {
-    const b = boardMeta(library.current);
-    const events = calendar.events.filter(e => e.boardId === library.current)
-      .map(e => ({ date: e.date, time: e.time, title: e.title }));
-    // JSON assemblé par morceaux pour ne pas exploser la mémoire sur iPad
-    const parts = ['{"app":"refy","v":4,"name":' + JSON.stringify((b && b.name) || 'Board') +
-                   ',"view":' + JSON.stringify({ x: view.x, y: view.y, s: view.s }) +
-                   ',"bg":' + JSON.stringify(bg) +
-                   ',"events":' + JSON.stringify(events) + ',"items":['];
-    for (let i = 0; i < items.length; i++) {
-      const it = items[i];
-      const entry = serializeItem(it);
-      delete entry.id;
-      if (it.type === 'img') entry.data = await blobToDataURL(it.blob);
-      parts.push((i ? ',' : '') + JSON.stringify(entry));
-    }
-    parts.push(']}');
-    const blob = new Blob(parts, { type: 'application/json' });
+    const { blob, slug } = await boardBackup();
     const d = new Date();
     const pad = n => String(n).padStart(2, '0');
-    const slug = ((b && b.name) || 'board').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 30) || 'board';
     const name = `refy-${slug}-${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}.refy.json`;
     await deliverFile(blob, name);
     toast(tr('backupDone') + name, 3500);
@@ -2604,6 +2610,7 @@ async function exportBoard() {
     toast(tr('exportFail'));
   }
 }
+
 async function importBoard(file) {
   let data;
   try { data = JSON.parse(await file.text()); } catch (e) { toast(tr('fileBad')); return; }
@@ -2624,6 +2631,7 @@ async function importBoard(file) {
     } catch (e) { /* élément corrompu : on passe */ }
   }
   if (data.items.length && !decoded.length) { toast(tr('backupBad')); return; }
+  const savedArrows = Array.isArray(data.arrows) ? data.arrows : [];
   const name = (typeof data.name === 'string' && data.name.trim())
     ? data.name.trim().slice(0, 48)
     : (file.name.replace(/\.refy\.json$|\.json$/i, '').replace(/^refy-/, '').slice(0, 48) || 'Import');
@@ -2632,7 +2640,7 @@ async function importBoard(file) {
   for (const d of decoded) {
     const raw = d.raw;
     const common = {
-      id: uid(),
+      id: raw.id || uid(),
       x: +raw.x || 0, y: +raw.y || 0,
       w: clamp(+raw.w || 300, MIN_W, MAX_W),
       rot: isFinite(+raw.rot) ? normAngle(+raw.rot) : 0,
@@ -2662,6 +2670,12 @@ async function importBoard(file) {
         ...common, type: 'todo', size: +raw.size || 15,
         entries: raw.entries.filter(x => x && typeof x.t === 'string').map(x => ({ t: x.t, done: !!x.done })),
       });
+    } else if (d.type === 'shape') {
+      addItem({ ...common, type: 'shape', size: +raw.size || 16, ...normShape(raw) });
+    } else if (d.type === 'pomo') {
+      addItem({ ...common, type: 'pomo', size: +raw.size || 15, pomo: normPomo(raw.pomo) });
+    } else if (d.type === 'grille' && isPlan(raw.plan)) {
+      addItem({ ...common, type: 'grille', size: +raw.size || 18, plan: normPlan(raw.plan) });
     } else if (d.type === 'palette' && Array.isArray(raw.colors)) {
       const cols = raw.colors.filter(c => /^#[0-9a-f]{6}$/i.test(c)).slice(0, 8);
       if (cols.length) addItem({ ...common, type: 'palette', colors: cols });
@@ -3611,22 +3625,24 @@ const ST = lang === 'fr'
 
 const SHAPE_FORMS = ['rect', 'pill', 'ellipse', 'diamond'];
 /* une palette courte et tenue : huit encres, pas un nuancier */
+/* chaque teinte a deux valeurs : un pastel pour le fond, une encre pour
+   le trait et le texte. Le contraste reste lisible dans les deux modes. */
 const SHAPE_COLORS = {
-  ink:    '#161616',
-  blue:   '#2b4ee6',
-  red:    '#d81e3f',
-  orange: '#e8611c',
-  ochre:  '#d9a119',
-  green:  '#0f7a5a',
-  violet: '#6b3fa0',
-  warm:   '#8a7f72',
+  graphite: { t: '#DEDCD5', i: '#4A4945' },
+  bleu:     { t: '#CBD9E6', i: '#42607E' },
+  sauge:    { t: '#CFDCCE', i: '#4C6552' },
+  paille:   { t: '#EDE4C6', i: '#7C6935' },
+  abricot:  { t: '#F0D8C6', i: '#8C5E43' },
+  rose:     { t: '#F0D5D7', i: '#8B515A' },
+  lilas:    { t: '#DBD5E6', i: '#5F557A' },
+  sable:    { t: '#E7E1D4', i: '#706755' },
 };
 const SHAPE_KEYS = Object.keys(SHAPE_COLORS);
 
 function normShape(raw) {
   const s = {};
   s.form = SHAPE_FORMS.includes(raw && raw.form) ? raw.form : 'rect';
-  s.color = SHAPE_KEYS.includes(raw && raw.color) ? raw.color : 'ink';
+  s.color = SHAPE_KEYS.includes(raw && raw.color) ? raw.color : 'graphite';
   s.fill = !!(raw && raw.fill);
   s.text = String((raw && raw.text) || '');
   return s;
@@ -3672,7 +3688,7 @@ function arrowLayer() {
 function addArrow(from, to) {
   if (!from || !to || from === to) return null;
   if (arrows.some(a => a.from === from.id && a.to === to.id)) return null;
-  const a = { id: uid(), from: from.id, to: to.id, color: from.type === 'shape' ? from.color : 'ink' };
+  const a = { id: uid(), from: from.id, to: to.id, color: from.type === 'shape' ? from.color : 'graphite' };
   arrows.push(a);
   drawArrows();
   scheduleSave();
@@ -3716,7 +3732,7 @@ function drawArrows() {
     const h = clamp(len * 0.14, 9, 18);          /* pointe proportionnée, jamais énorme */
     const bx = p2.x - Math.cos(ang) * h, by = p2.y - Math.sin(ang) * h;
     const nx = -Math.sin(ang) * h * 0.42, ny = Math.cos(ang) * h * 0.42;
-    const col = SHAPE_COLORS[a.color] || SHAPE_COLORS.ink;
+    const col = (SHAPE_COLORS[a.color] || SHAPE_COLORS.graphite).i;
     const sel = a.id === selectedArrow ? ' sel' : '';
     out += `<g class="arw${sel}" data-a="${a.id}" style="--ac:${col}">
       <line class="ahit" x1="${p1.x}" y1="${p1.y}" x2="${p2.x}" y2="${p2.y}"></line>
@@ -3735,7 +3751,7 @@ function drawArrows() {
 /* ---------- la barre de réglages, visible seulement sur sélection ---------- */
 function shapeBarMarkup() {
   const forms = SHAPE_FORMS.map(f => `<button data-sf="${f}" title="${ST.shape}"><i class="sfi sf-${f}"></i></button>`).join('');
-  const cols = SHAPE_KEYS.map(k => `<button data-sc="${k}"><i class="sci" style="background:${SHAPE_COLORS[k]}"></i></button>`).join('');
+  const cols = SHAPE_KEYS.map(k => `<button data-sc="${k}" title="${k}"><i class="sci" style="background:${SHAPE_COLORS[k].t};border-color:${SHAPE_COLORS[k].i}"></i></button>`).join('');
   return `<span class="sgrp">${forms}</span><span class="sgrp">${cols}</span>
     <span class="sgrp"><button data-sfill="1" class="stog">${ST.solid}</button>
     <button data-slink="1" class="stog">${ST.link} →</button></span>`;
@@ -3782,3 +3798,165 @@ $('vp').addEventListener('click', e => {
   const next = g ? g.dataset.a : null;
   if (next !== selectedArrow) { selectedArrow = next; drawArrows(); }
 });
+
+/* ============================== Dropbox ==============================
+   Sauvegarde et restauration d'un board dans un dossier cloisonné.
+   PKCE : aucune clé secrète, aucun serveur. Le fichier envoyé est
+   exactement le même que le backup local, images comprises. */
+
+const DBX_KEY = 'vrteolr7ryzkul7';
+const DBX_LS = 'refy.dbx';
+const DT = lang === 'fr' ? {
+  connect: 'Connecter Dropbox', send: 'Envoyer ce board', get: 'Récupérer…', off: 'Déconnecter',
+  sending: 'Envoi vers Dropbox…', sent: 'Envoyé sur Dropbox', getting: 'Récupération…',
+  empty: 'Aucune sauvegarde sur Dropbox', fail: 'Dropbox : échec', bye: 'Dropbox déconnecté',
+  back: '‹ Retour', title: 'Dropbox',
+} : {
+  connect: 'Connect Dropbox', send: 'Send this board', get: 'Restore…', off: 'Disconnect',
+  sending: 'Sending to Dropbox…', sent: 'Sent to Dropbox', getting: 'Restoring…',
+  empty: 'No backup on Dropbox', fail: 'Dropbox: failed', bye: 'Dropbox disconnected',
+  back: '‹ Back', title: 'Dropbox',
+};
+
+const dbxRedirect = () => location.origin + location.pathname;
+function dbxLoad() { try { return JSON.parse(localStorage.getItem(DBX_LS) || 'null'); } catch (_) { return null; } }
+function dbxSave(t) { try { localStorage.setItem(DBX_LS, JSON.stringify(t)); } catch (_) {} }
+function dbxForget() { try { localStorage.removeItem(DBX_LS); } catch (_) {} }
+const dbxOn = () => !!(dbxLoad() || {}).refresh;
+
+function dbxRand(n) {
+  const a = new Uint8Array(n);
+  crypto.getRandomValues(a);
+  return [...a].map(x => 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~'[x % 66]).join('');
+}
+function dbxB64url(buf) {
+  return btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+async function dbxConnect() {
+  const verifier = dbxRand(64);
+  try { sessionStorage.setItem('refy.dbxv', verifier); } catch (_) {}
+  const challenge = dbxB64url(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier)));
+  const u = new URL('https://www.dropbox.com/oauth2/authorize');
+  u.searchParams.set('client_id', DBX_KEY);
+  u.searchParams.set('response_type', 'code');
+  u.searchParams.set('redirect_uri', dbxRedirect());
+  u.searchParams.set('code_challenge', challenge);
+  u.searchParams.set('code_challenge_method', 'S256');
+  u.searchParams.set('token_access_type', 'offline');   /* pour ne pas redemander toutes les 4 h */
+  location.href = u.toString();
+}
+async function dbxToken(body) {
+  const r = await fetch('https://api.dropboxapi.com/oauth2/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({ client_id: DBX_KEY, ...body }).toString(),
+  });
+  if (!r.ok) throw new Error('token');
+  const j = await r.json();
+  const cur = dbxLoad() || {};
+  dbxSave({
+    access: j.access_token,
+    refresh: j.refresh_token || cur.refresh,
+    exp: Date.now() + (j.expires_in || 14000) * 1000 - 60000,
+  });
+}
+/* retour depuis la page Dropbox */
+async function dbxReturn() {
+  const p = new URLSearchParams(location.search);
+  const code = p.get('code');
+  if (!code) return;
+  let verifier = '';
+  try { verifier = sessionStorage.getItem('refy.dbxv') || ''; } catch (_) {}
+  history.replaceState(null, '', dbxRedirect());
+  if (!verifier) return;
+  try {
+    await dbxToken({ grant_type: 'authorization_code', code, code_verifier: verifier, redirect_uri: dbxRedirect() });
+    try { sessionStorage.removeItem('refy.dbxv'); } catch (_) {}
+    toast('Dropbox ✓');
+  } catch (_) { toast(DT.fail); }
+}
+async function dbxAuth() {
+  const t = dbxLoad();
+  if (!t) throw new Error('off');
+  if (t.access && Date.now() < t.exp) return t.access;
+  await dbxToken({ grant_type: 'refresh_token', refresh_token: t.refresh });
+  return dbxLoad().access;
+}
+async function dbxRpc(path, arg) {
+  const r = await fetch('https://api.dropboxapi.com/2/' + path, {
+    method: 'POST',
+    headers: { Authorization: 'Bearer ' + await dbxAuth(), 'Content-Type': 'application/json' },
+    body: JSON.stringify(arg),
+  });
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+async function dbxUpload(name, blob) {
+  const r = await fetch('https://content.dropboxapi.com/2/files/upload', {
+    method: 'POST',
+    headers: {
+      Authorization: 'Bearer ' + await dbxAuth(),
+      'Dropbox-API-Arg': JSON.stringify({ path: '/' + name, mode: 'overwrite', mute: true }),
+      'Content-Type': 'application/octet-stream',
+    },
+    body: blob,
+  });
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+async function dbxDownload(path) {
+  const r = await fetch('https://content.dropboxapi.com/2/files/download', {
+    method: 'POST',
+    headers: { Authorization: 'Bearer ' + await dbxAuth(), 'Dropbox-API-Arg': JSON.stringify({ path }) },
+  });
+  if (!r.ok) throw new Error(await r.text());
+  return r.blob();
+}
+
+/* ---------- le panneau ---------- */
+function dbxPanel(list) {
+  const bar = $('dbx');
+  if (!dbxOn()) {
+    bar.innerHTML = `<button class="dbtn primary" data-db="on">${DT.connect}</button>`;
+  } else if (list) {
+    bar.innerHTML = `<button class="dbtn" data-db="menu">${DT.back}</button>`
+      + (list.length ? list.map(e => `<button class="dbtn file" data-db="pull" data-p="${esc(e.path_lower)}">${esc(e.name.replace(/\.refy\.json$/, ''))}</button>`).join('')
+                     : `<span class="dhint">${DT.empty}</span>`);
+  } else {
+    bar.innerHTML = `<button class="dbtn primary" data-db="push">${DT.send}</button>`
+      + `<button class="dbtn" data-db="list">${DT.get}</button>`
+      + `<button class="dbtn quiet" data-db="off">${DT.off}</button>`;
+  }
+  closePopovers('dbx');
+  bar.classList.add('open');
+}
+$('dbx').addEventListener('click', async e => {
+  const b = e.target.closest('[data-db]'); if (!b) return;
+  const act = b.dataset.db;
+  try {
+    if (act === 'on') { dbxConnect(); return; }
+    if (act === 'off') { dbxForget(); dbxPanel(); toast(DT.bye); return; }
+    if (act === 'menu') { dbxPanel(); return; }
+    if (act === 'push') {
+      closePopovers(); toast(DT.sending);
+      const { blob, name } = await boardBackup();
+      await dbxUpload(name, blob);
+      toast(DT.sent);
+      return;
+    }
+    if (act === 'list') {
+      const j = await dbxRpc('files/list_folder', { path: '' });
+      dbxPanel((j.entries || []).filter(x => x['.tag'] === 'file').sort((a, b) => (a.name > b.name ? 1 : -1)));
+      return;
+    }
+    if (act === 'pull') {
+      closePopovers(); toast(DT.getting);
+      const blob = await dbxDownload(b.dataset.p);
+      const name = b.dataset.p.split('/').pop();
+      await importBoard(new File([blob], name, { type: 'application/json' }));
+      return;
+    }
+  } catch (err) { toast(DT.fail); }
+});
+
+dbxReturn();

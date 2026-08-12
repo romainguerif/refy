@@ -656,7 +656,7 @@ body.dropping #drop-overlay { display:flex; }
 
 /* ---------- formes ---------- */
 .item.shape {
-  --c:#161616;
+  --c:#4A4945; --t:#DEDCD5;
   display:flex; align-items:center; justify-content:center;
   min-height:2.6em; padding:.7em .9em; text-align:center;
   background:var(--paper); color:var(--c);
@@ -678,16 +678,16 @@ body.dropping #drop-overlay { display:flex; }
   clip-path:polygon(50% 0, 100% 50%, 50% 100%, 0 50%);
 }
 .item.shape[data-form="diamond"] .tx { position:relative; z-index:1; }
-.item.shape.filled { background:var(--c); color:var(--paper); }
-.item.shape.filled[data-form="diamond"]::before { background:var(--c); }
-.item.shape[data-c="ink"]    { --c:#161616; }
-.item.shape[data-c="blue"]   { --c:#2b4ee6; }
-.item.shape[data-c="red"]    { --c:#d81e3f; }
-.item.shape[data-c="orange"] { --c:#e8611c; }
-.item.shape[data-c="ochre"]  { --c:#d9a119; }
-.item.shape[data-c="green"]  { --c:#0f7a5a; }
-.item.shape[data-c="violet"] { --c:#6b3fa0; }
-.item.shape[data-c="warm"]   { --c:#8a7f72; }
+.item.shape.filled { background:var(--t); color:var(--c); }
+.item.shape.filled[data-form="diamond"]::before { background:var(--t); }
+.item.shape[data-c="graphite"] { --c:#4A4945; --t:#DEDCD5; }
+.item.shape[data-c="bleu"]     { --c:#42607E; --t:#CBD9E6; }
+.item.shape[data-c="sauge"]    { --c:#4C6552; --t:#CFDCCE; }
+.item.shape[data-c="paille"]   { --c:#7C6935; --t:#EDE4C6; }
+.item.shape[data-c="abricot"]  { --c:#8C5E43; --t:#F0D8C6; }
+.item.shape[data-c="rose"]     { --c:#8B515A; --t:#F0D5D7; }
+.item.shape[data-c="lilas"]    { --c:#5F557A; --t:#DBD5E6; }
+.item.shape[data-c="sable"]    { --c:#706755; --t:#E7E1D4; }
 
 /* ---------- flèches ---------- */
 #arrows { position:absolute; left:0; top:0; pointer-events:none; }
@@ -713,6 +713,20 @@ body.dropping #drop-overlay { display:flex; }
 #shapebar .sf-pill { border-radius:999px; }
 #shapebar .sf-ellipse { border-radius:50%; }
 #shapebar .sf-diamond { width:15px; height:15px; transform:rotate(45deg); }
-#shapebar .sci { display:block; width:17px; height:17px; border-radius:50%; }
+#shapebar .sci { display:block; width:17px; height:17px; border-radius:50%; border:1.5px solid; }
 #shapebar button.on .sci { box-shadow:0 0 0 2px #f5f2ea; }
 #shapebar .stog { font-size:.78rem; padding:.3rem .55rem; border:1px solid rgba(255,255,255,.2); }
+
+/* ---------- panneau Dropbox ---------- */
+#dbx { display:none; flex-direction:column; gap:.3rem; min-width:14rem; max-height:60vh; overflow-y:auto; }
+#dbx.open { display:flex; }
+.dbtn {
+  background:none; border:0; color:inherit; font:inherit; font-size:.9rem; text-align:left;
+  padding:.5rem .6rem; border-radius:.4rem; cursor:pointer; white-space:nowrap;
+  overflow:hidden; text-overflow:ellipsis;
+}
+.dbtn:active { background:rgba(255,255,255,.12); }
+.dbtn.primary { background:var(--accent); color:#fff; font-weight:500; }
+.dbtn.quiet { opacity:.6; font-size:.82rem; }
+.dbtn.file { border-top:1px solid rgba(255,255,255,.1); border-radius:0; }
+.dhint { font-size:.82rem; opacity:.6; padding:.5rem .6rem; }

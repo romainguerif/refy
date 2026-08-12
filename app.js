@@ -218,6 +218,8 @@ function animateViewTo(tx, ty, ts) {
 }
 
 /* ============================== IndexedDB ============================== */
+const APP_V = 'v5.17';     /* affiche dans le diagnostic : sert a savoir quel code tourne */
+let dbWhy = '';            /* raison precise du refus d'ouverture */
 let db = null;
 let saveBroken = '';
 let bootError = '';        /* le stockage n'a pas repondu : on ne sauvegarde plus rien */
@@ -227,18 +229,18 @@ function alarmStorage() {
   toast(tr('storageDown'), 9000);
   const el = document.createElement('div');
   el.id = 'storage-alarm';
-  el.textContent = tr('storageDown') + ' — ' + bootError;
+  el.textContent = tr('storageDown') + ' — ' + bootError + ' — ' + APP_V;
   document.body.appendChild(el);
 }
 let dbRepaired = '';       /* rayons recréés au démarrage, pour le diagnostic */
 function openDB() {
   return new Promise(res => {
-    if (!('indexedDB' in window)) return res(null);
+    if (!('indexedDB' in window)) { dbWhy = 'indexedDB absent du navigateur'; return res(null); }
     let rq;
     /* Sans numéro : on ouvre la base telle qu'elle est. En exiger un revient à
        exiger celui-là précisément — et une base déjà montée d'un cran (le rayon
        audio) refuserait de s'ouvrir avec une erreur de version. */
-    try { rq = indexedDB.open('refy'); } catch (e) { return res(null); }
+    try { rq = indexedDB.open('refy'); } catch (e) { dbWhy = 'open a leve ' + (e && e.name || e); return res(null); }
     rq.onupgradeneeded = () => {
       rq.result.createObjectStore('images');
       rq.result.createObjectStore('meta');
@@ -280,8 +282,8 @@ function openDB() {
             dbRepaired = 'sans ' + missing.join(', ');
             res(dd);
           };
-          rq3.onerror = () => res(null);
-          rq3.onblocked = () => res(null);
+          rq3.onerror = () => { dbWhy = 'repli : ' + ((rq3.error && rq3.error.name) || '?'); res(null); };
+          rq3.onblocked = () => { dbWhy = 'repli bloque par une autre fenetre'; res(null); };
         };
         rq2.onerror = fallback;
         rq2.onblocked = fallback;
@@ -291,8 +293,8 @@ function openDB() {
       d.onversionchange = () => { d.close(); if (db === d) db = null; };
       res(d);
     };
-    rq.onerror = () => res(null);
-    rq.onblocked = () => res(null);
+    rq.onerror = () => { dbWhy = 'erreur ' + ((rq.error && rq.error.name) || '?'); res(null); };
+    rq.onblocked = () => { dbWhy = 'ouverture bloquee par une autre fenetre'; res(null); };
   });
 }
 async function idb(store, mode, fn) {
@@ -2971,7 +2973,7 @@ document.addEventListener('drop', e => {
 async function boot() {
   applyI18n();
   db = await openDB();
-  if (!db) bootError = 'base indisponible';
+  if (!db) bootError = dbWhy || 'base indisponible';
   if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
   applyView();
   applyBg();
@@ -4285,13 +4287,14 @@ async function storageInfo() {
   } catch (_) {}
   try { persisted = await navigator.storage.persisted(); } catch (_) {}
   let base = 'ok';
+  const version = APP_V + (db ? ' · base v' + db.version : '');
   if (!db) base = 'base fermée';
   else if (!db.objectStoreNames.contains('meta')) base = 'RAYON MANQUANT';
   else if (dbRepaired) base = 'réparée (' + dbRepaired + ')';
   if (saveBroken) base = 'ÉCHEC ÉCRITURE : ' + saveBroken;
   if (bootError) base = 'PANNE : ' + bootError;
   const boards = library ? library.boards.length : 0;
-  return { usage, quota, persisted, base, boards, pct: quota ? Math.min(100, usage / quota * 100) : 0 };
+  return { usage, quota, persisted, base, boards, version, pct: quota ? Math.min(100, usage / quota * 100) : 0 };
 }
 
 /* Toutes les images encore référencées, tous boards confondus. */
@@ -4359,7 +4362,8 @@ async function dbxPanel() {
   const st = await storageInfo();
   const gauge = `<div class="dgauge"><i style="width:${st.pct.toFixed(1)}%"></i></div>
     <span class="dhint">${humanSize(st.usage)}${st.quota ? ' / ' + humanSize(st.quota) : ''} ${DT.used}</span>
-    <span class="dhint diag">${st.boards} board${st.boards > 1 ? 's' : ''} · ${DT.store} ${st.persisted ? DT.kept : DT.evictable} · ${st.base}</span>`;
+    <span class="dhint diag">${st.boards} board${st.boards > 1 ? 's' : ''} · ${DT.store} ${st.persisted ? DT.kept : DT.evictable} · ${st.base}</span>
+    <span class="dhint diag">${st.version}</span>`;
   bar.innerHTML = gauge + (dbxOn()
     ? `<span class="dhint">${DT.on}</span>
        <button class="dbtn" data-db="now">${DT.now}</button>

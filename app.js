@@ -236,6 +236,7 @@ function openDB() {
     rq.onupgradeneeded = () => {
       rq.result.createObjectStore('images');
       rq.result.createObjectStore('meta');
+      rq.result.createObjectStore('audio');
     };
     rq.onsuccess = () => {
       const d = rq.result;
@@ -243,7 +244,7 @@ function openDB() {
          des rayons. Comme le numéro de version n'a pas bougé, onupgradeneeded ne
          se déclenche jamais et chaque écriture échoue en silence : on rouvre donc
          un cran plus haut pour créer ce qui manque. */
-      const missing = ['images', 'meta'].filter(n => !d.objectStoreNames.contains(n));
+      const missing = ['images', 'meta', 'audio'].filter(n => !d.objectStoreNames.contains(n));
       if (missing.length) {
         const next = d.version + 1;
         d.close();
@@ -323,7 +324,8 @@ function serializeItem(it) {
   if (it.type === 'shape') return { ...base, size: it.size, form: it.form, color: it.color, fill: it.fill, text: it.text };
   if (it.type === 'album') return { ...base, size: it.size, name: it.name,
     tracks: it.tracks.map(t => ({ board: t.board, ref: t.ref, title: t.title, bpm: t.bpm,
-                                  bars: t.bars, meter: t.meter, state: t.state, peak: t.peak })) };
+                                  bars: t.bars, meter: t.meter, state: t.state, peak: t.peak,
+                                  audio: t.audio })) };
   if (it.type === 'img' && it.hash) base.hash = it.hash;
   if (it.type === 'grille') return { ...base, size: it.size, plan: it.plan };
   return base;
@@ -535,6 +537,9 @@ function selectAll() {
   refreshSelClasses();
 }
 function removeItem(it, instant) {
+  if (it.type === 'grille' && it.plan) {
+    for (const v of (it.plan.versions || [])) if (v.audio) dbDelAudio(v.audio.id).catch(() => {});
+  }
   removeArrowsOf(it.id);
   if (editingText === it) commitTextEdit();
   if (editingTodo && editingTodo.it === it) commitTodoEdit();
@@ -683,6 +688,14 @@ async function importFiles(files, atScreen) {
         const it = await addImageBlob(file, at ? { at } : undefined);
         if (!at) { it.x += n * 24 / view.s; it.y += n * 24 / view.s; renderItem(it); }
         select(it);
+        n++;
+      } else if (file.type.startsWith('audio/') || AUDIO_RE.test(file.name)) {
+        /* un son se depose sur un plan : c'est la qu'il veut dire quelque chose */
+        const g = (selected && selected.type === 'grille') ? selected
+                : (gview.it || items.filter(i => i.type === 'grille').slice(-1)[0]);
+        if (!g) { toast(AUD.drop, 4000); continue; }
+        await attachAudioToVersion(g, null, file);
+        select(g);
         n++;
       } else if (file.type === 'application/pdf' || /\.pdf$/i.test(file.name)) {
         await importPdf(file, at);
@@ -3035,7 +3048,7 @@ function newPlan() {
     bpm: 120, meter: [4, 4], bars: 64, phrase: 16,
     sections: [{ bar: 1, name: 'Intro' }],
     lanes: [], energy: [{ bar: 1, v: .2 }, { bar: 64, v: .8 }],
-    markers: [], zones: [], history: [],
+    markers: [], zones: [], history: [], versions: [],
   };
 }
 
@@ -3066,6 +3079,7 @@ function normPlan(raw) {
     return { from, to: clamp(Math.round(+z.to) || from, from, p.bars), label: String(z.label || '') };
   });
   p.history = p.history || [];
+  p.versions = normVersions(p.versions, p);
   return p;
 }
 const planBarSec = p => (60 / p.bpm) * (p.meter[0] || 4);
@@ -3213,6 +3227,28 @@ function grilleList(p) {
   }).join('');
 }
 
+/* ---------- les versions entendues ---------- */
+let audioTarget = null;
+function grilleVersions(p) {
+  const rows = (p.versions || []).slice().sort((a, b) => b.date - a.date).map(v => {
+    const d = new Date(v.date);
+    const when = `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}`;
+    return `<div class="gver">
+      ${v.audio ? `<button class="gvplay${player.id === v.audio.id ? ' playing' : ''}" data-v="play" data-i="${v.id}"></button>`
+                : `<button class="gvplay off" data-v="sound" data-i="${v.id}"></button>`}
+      <span class="gvname">${esc(v.label)}</span>
+      <span class="gvmeta">${when} · ${v.bpm} BPM · ${v.bars} ${GT.bars.toLowerCase()}${v.audio ? ' · ' + planTime(v.audio.dur) : ''}</span>
+      <button class="gvx" data-v="del" data-i="${v.id}">×</button>
+    </div>`;
+  }).join('');
+  return `<div class="gvers"><h4>${AUD.versions}</h4>
+    ${rows || `<p class="ghint">${AUD.noVersion}</p>`}
+    <div class="gvacts">
+      <button class="gz" data-v="new">${AUD.newVersion}</button>
+      <button class="gz" data-v="sound">${AUD.add}</button>
+    </div></div>`;
+}
+
 /* ---------- l'édition ---------- */
 const gnum = (kind, i, f, v, ph, l) =>
   `<input class="gin gnum" type="number" inputmode="numeric" data-kind="${kind}" data-i="${i}"${l === undefined ? '' : ` data-l="${l}"`} data-f="${f}" value="${v}" placeholder="${esc(ph || '')}" aria-label="${esc(ph || f)}">`;
@@ -3312,6 +3348,7 @@ function renderGrille() {
     </div>
     <div class="gbody">
       ${gview.edit ? grilleEditor(p) : (gview.mode === 'grille' ? grilleTimeline(p) : '') + `<div class="glist">${grilleList(p)}</div>`
+        + grilleVersions(p)
         + (p.notes ? `<p class="gnotes">${esc(p.notes)}</p>` : '')
         + (hist ? `<div class="ghist">${hist}</div>` : '')}
     </div>
@@ -3350,7 +3387,10 @@ function paintGrille(full) {
 function grilleTick() {
   if (!gview.playing) return;
   const p = gview.it.plan;
-  gview.elapsed = (performance.now() - gview.t0) / 1000;
+  /* si un son tourne, c'est lui l'horloge : la grille colle a ce qu'on entend */
+  gview.elapsed = (player.id && player.el && !player.el.paused)
+    ? player.el.currentTime
+    : (performance.now() - gview.t0) / 1000;
   if (gview.elapsed >= planLen(p)) { gview.elapsed = planLen(p); stopGrille(); return; }
   const bar = planBarAt(p, gview.elapsed);
   const key = bar + '|' + Math.floor(gview.elapsed);
@@ -3471,6 +3511,29 @@ $('grille').addEventListener('click', e => {
   if (e.target.closest('.gimport')) { $('file-plan').click(); return; }
   if (e.target.closest('.gcopy')) {
     navigator.clipboard.writeText(planText(p)).then(() => toast(tr('gCopied'))).catch(() => {});
+    return;
+  }
+  const va = e.target.closest('[data-v]');
+  if (va) {
+    const act = va.dataset.v, id = va.dataset.i;
+    if (act === 'new') { p.versions.push(snapVersion(p)); renderGrille(); scheduleSave(); }
+    else if (act === 'sound') { audioTarget = { it: gview.it, version: id || null }; $('file-audio').click(); }
+    else if (act === 'del') {
+      const v = p.versions.find(x => x.id === id);
+      if (v && v.audio) dbDelAudio(v.audio.id).catch(() => {});
+      p.versions = p.versions.filter(x => x.id !== id);
+      renderGrille(); updateGrilleDOM(gview.it); scheduleSave();
+    } else if (act === 'play') {
+      const v = p.versions.find(x => x.id === id);
+      if (v && v.audio) {
+        playAudio(v.audio.id, () => stopGrille()).then(started => {
+          if (!started) return;
+          va.classList.add('playing');
+          gview.elapsed = 0;
+          if (!gview.playing) playGrille();
+        });
+      }
+    }
     return;
   }
   if (e.target.closest('[data-edit]')) {
@@ -4078,6 +4141,18 @@ async function dbxPushCurrent() {
     } catch (_) { /* on réessaiera au prochain tour */ }
   }
 
+  /* les sons sont immuables une fois crees : un identifiant suffit, pas d'empreinte */
+  for (const it of items) {
+    if (it.type !== 'grille') continue;
+    for (const v of (it.plan.versions || [])) {
+      if (!v.audio || sent.has('a:' + v.audio.id)) continue;
+      try {
+        const b = await dbGetAudio(v.audio.id);
+        if (b) { await dbxUp('/audio/' + v.audio.id, b); sent.add('a:' + v.audio.id); }
+      } catch (_) {}
+    }
+  }
+
   const blob = new Blob([JSON.stringify(st)], { type: 'application/json' });
   let res;
   try {
@@ -4113,6 +4188,14 @@ async function dbxPullBoard(id, data) {
   if (library.current !== id) await switchBoard(id);
 
   for (const raw of st.items) {          /* les images manquantes, et elles seules */
+    if (raw.type === 'grille' && raw.plan) {
+      for (const v of (raw.plan.versions || [])) {
+        if (!v.audio) continue;
+        try { if (await dbGetAudio(v.audio.id)) continue; } catch (_) {}
+        try { await dbPutAudio(v.audio.id, await dbxDown('/audio/' + v.audio.id)); } catch (_) {}
+      }
+      continue;
+    }
     if (raw.type !== 'img' || !raw.hash) continue;
     try {
       if (await dbGetImage(raw.id)) continue;
@@ -4311,6 +4394,7 @@ function normAlbum(raw) {
       board: String(t.board || ''), ref: String(t.ref || ''),
       title: String(t.title), bpm: +t.bpm || 120, bars: +t.bars || 0, meter: +t.meter || 4,
       state: clamp(Math.round(+t.state) || 0, 0, 2), peak: +t.peak || .5,
+      audio: t.audio && t.audio.id ? { id: String(t.audio.id), dur: +t.audio.dur || 0 } : null,
     })),
   };
 }
@@ -4342,6 +4426,7 @@ async function albumCatalogue() {
         board: b.id, ref: x.id, title: x.plan.title,
         bpm: +x.plan.bpm || 120, bars: +x.plan.bars || 0,
         meter: (x.plan.meter && x.plan.meter[0]) || 4, energy: x.plan.energy || [],
+        audio: lastAudioOf(x.plan),
       })),
     });
   }
@@ -4358,6 +4443,7 @@ async function albumRefresh(it) {
     if (s) {
       if (t.title !== s.title || t.bpm !== s.bpm || t.bars !== s.bars) changed = true;
       t.title = s.title; t.bpm = s.bpm; t.bars = s.bars; t.meter = s.meter; t.peak = albumPeak(s.energy);
+      t.audio = s.audio || null;
     } else if (t.bars) { t.bars = 0; changed = true; }
   }
   if (changed) { updateAlbumDOM(it); scheduleSave(); }
@@ -4388,6 +4474,7 @@ function updateAlbumDOM(it, el) {
       <b class="altitle">${esc(t.title)}${t.bars ? '' : ` <i>${AT.gone}</i>`}</b>
       <b class="albpm${jump ? ' jump' : ''}">${t.bpm}${prev ? `<i>${d > 0 ? '+' : ''}${d || '='}</i>` : ''}</b>
       <b class="allen">${t.bars ? planTime(trackLen(t)) : '—'}</b>
+      ${t.audio ? `<b class="alplay${player.id === t.audio.id ? ' playing' : ''}" data-al="play" data-i="${i}"></b>` : '<b class="alplay off"></b>'}
       <b class="alacts"><i data-al="up" data-i="${i}">▲</i><i data-al="down" data-i="${i}">▼</i><i data-al="del" data-i="${i}">×</i></b>
     </span>`;
   }).join('') : `<span class="alempty">${AT.empty}</span>`;
@@ -4429,7 +4516,7 @@ $('albumpick').addEventListener('click', e => {
   const s = (alPick.cat || []).flatMap(g => g.songs).find(x => x.board === b.dataset.b && x.ref === b.dataset.r);
   if (!s) return;
   alPick.it.tracks.push({ board: s.board, ref: s.ref, title: s.title, bpm: s.bpm, bars: s.bars,
-                          meter: s.meter, state: 0, peak: albumPeak(s.energy) });
+                          meter: s.meter, state: 0, peak: albumPeak(s.energy), audio: s.audio || null });
   updateAlbumDOM(alPick.it);
   renderItem(alPick.it);
   scheduleSave();
@@ -4438,6 +4525,17 @@ $('albumpick').addEventListener('click', e => {
 /* ---------- les gestes sur la carte ---------- */
 function albumAction(it, a, i) {
   if (a === 'add') { openAlbumPick(it); return; }
+  /* ecouter l'EP dans l'ordre : a la fin d'un titre, le suivant qui a du son */
+  if (a === 'play') {
+    const t = it.tracks[i];
+    if (!t || !t.audio) return;
+    const next = () => {
+      const j = it.tracks.findIndex((x, k) => k > i && x.audio);
+      if (j >= 0) albumAction(it, 'play', j); else updateAlbumDOM(it);
+    };
+    playAudio(t.audio.id, next).then(() => updateAlbumDOM(it));
+    return;
+  }
   if (a === 'state') it.tracks[i].state = (it.tracks[i].state + 1) % 3;
   else if (a === 'up' && i > 0) [it.tracks[i - 1], it.tracks[i]] = [it.tracks[i], it.tracks[i - 1]];
   else if (a === 'down' && i < it.tracks.length - 1) [it.tracks[i + 1], it.tracks[i]] = [it.tracks[i], it.tracks[i + 1]];
@@ -4471,4 +4569,272 @@ function editAlbumName(it) {
     updateAlbumDOM(it);
     scheduleSave();
   }, { once: true });
+}
+
+/* ============================== audio ==============================
+   Import d'un fichier son, conversion opportuniste en Opus, rangement
+   dans la base locale, lecture. Un son est la version entendue d'un plan. */
+
+const AUD = lang === 'fr' ? {
+  add: 'Ajouter le son', importing: 'Import du son…', converting: 'Conversion en Opus…',
+  tooBig: n => `Fichier de ${n} — exporte plutôt en MP3 ou AAC`, bad: 'Fichier son illisible',
+  noVersion: 'Aucune version pour l\u2019instant', newVersion: 'Enregistrer une version',
+  versions: 'Versions', noSound: 'pas de son', gain: n => `${n} économisés`,
+  saved: 'Version enregistrée', vName: 'version', drop: 'Sélectionne une grille pour y déposer le son',
+} : {
+  add: 'Add audio', importing: 'Importing audio…', converting: 'Converting to Opus…',
+  tooBig: n => `${n} file — export as MP3 or AAC instead`, bad: 'Unreadable audio file',
+  noVersion: 'No version yet', newVersion: 'Save a version',
+  versions: 'Versions', noSound: 'no audio', gain: n => `${n} saved`,
+  saved: 'Version saved', vName: 'version', drop: 'Select a song plan to drop the audio on',
+};
+
+const AUDIO_MAX = 200 * 1024 * 1024;   /* au-delà ce n'est plus un format de travail */
+const dbPutAudio = (id, blob) => idb('audio', 'readwrite', s => s.put(blob, id));
+const dbGetAudio = id => idb('audio', 'readonly', s => s.get(id));
+const dbDelAudio = id => idb('audio', 'readwrite', s => s.delete(id));
+
+/* ---------- Ogg Opus : encodeur et conteneur, sans bibliothèque ----------
+   WebCodecs sait encoder de l'Opus, mais il rend des paquets bruts : sans
+   conteneur, aucun lecteur n'en veut. Pour de l'audio seul le bon conteneur
+   est l'Ogg, et un Ogg tient en une centaine de lignes — bien moins qu'un
+   encodeur en WebAssembly qu'il faudrait télécharger et maintenir. */
+const OGG_CRC = (() => {
+  const t = new Uint32Array(256);
+  for (let i = 0; i < 256; i++) {
+    let r = i << 24;
+    for (let j = 0; j < 8; j++) r = (r & 0x80000000) ? ((r << 1) ^ 0x04c11db7) : (r << 1);
+    t[i] = r >>> 0;
+  }
+  return t;
+})();
+function oggCrc(buf) {
+  let c = 0;
+  for (let i = 0; i < buf.length; i++) c = ((c << 8) ^ OGG_CRC[((c >>> 24) ^ buf[i]) & 0xff]) >>> 0;
+  return c >>> 0;
+}
+function oggPage(serial, seq, type, granule, packet) {
+  const segs = [];
+  let n = packet.length;
+  while (n >= 255) { segs.push(255); n -= 255; }
+  segs.push(n);
+  const page = new Uint8Array(27 + segs.length + packet.length);
+  const dv = new DataView(page.buffer);
+  page.set([0x4f, 0x67, 0x67, 0x53], 0);                 /* "OggS" */
+  page[4] = 0; page[5] = type;
+  dv.setUint32(6, granule >>> 0, true);
+  dv.setUint32(10, Math.floor(granule / 4294967296), true);
+  dv.setUint32(14, serial, true);
+  dv.setUint32(18, seq, true);
+  dv.setUint32(22, 0, true);                             /* somme de contrôle : calculée ensuite */
+  page[26] = segs.length;
+  page.set(segs, 27);
+  page.set(packet, 27 + segs.length);
+  dv.setUint32(22, oggCrc(page), true);
+  return page;
+}
+function opusHead(channels, rate, preSkip) {
+  const b = new Uint8Array(19);
+  const dv = new DataView(b.buffer);
+  b.set([0x4f, 0x70, 0x75, 0x73, 0x48, 0x65, 0x61, 0x64], 0);   /* "OpusHead" */
+  b[8] = 1; b[9] = channels;
+  dv.setUint16(10, preSkip, true);
+  dv.setUint32(12, rate, true);
+  dv.setUint16(16, 0, true);                             /* gain */
+  b[18] = 0;                                             /* famille de mappage */
+  return b;
+}
+function opusTags() {
+  const v = new TextEncoder().encode('refy');
+  const b = new Uint8Array(8 + 4 + v.length + 4);
+  const dv = new DataView(b.buffer);
+  b.set([0x4f, 0x70, 0x75, 0x73, 0x54, 0x61, 0x67, 0x73], 0);   /* "OpusTags" */
+  dv.setUint32(8, v.length, true);
+  b.set(v, 12);
+  dv.setUint32(12 + v.length, 0, true);                  /* zéro commentaire */
+  return b;
+}
+const canEncodeOpus = () => typeof AudioEncoder !== 'undefined' && typeof AudioData !== 'undefined';
+
+/* Décode, ramène à 48 kHz, réencode. Rend null si le navigateur ne sait pas
+   faire : l'appelant garde alors le fichier d'origine, l'import ne bloque jamais. */
+async function toOggOpus(file, kbps) {
+  if (!canEncodeOpus()) return null;
+  let buf;
+  try {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    const ac = new AC();
+    buf = await ac.decodeAudioData(await file.arrayBuffer());
+    ac.close();
+  } catch (_) { return null; }
+
+  const ch = Math.min(2, buf.numberOfChannels) || 1;
+  const RATE = 48000;
+  let src = buf;
+  if (buf.sampleRate !== RATE) {
+    try {
+      const off = new OfflineAudioContext(ch, Math.ceil(buf.duration * RATE), RATE);
+      const node = off.createBufferSource();
+      node.buffer = buf; node.connect(off.destination); node.start();
+      src = await off.startRendering();
+    } catch (_) { return null; }
+  }
+  const cfg = { codec: 'opus', sampleRate: RATE, numberOfChannels: ch, bitrate: (kbps || 96) * 1000 };
+  const ok = await AudioEncoder.isConfigSupported(cfg).catch(() => null);
+  if (!ok || !ok.supported) return null;
+
+  const packets = [];
+  let err = null;
+  const enc = new AudioEncoder({
+    output: c => { const d = new Uint8Array(c.byteLength); c.copyTo(d); packets.push(d); },
+    error: e => { err = e; },
+  });
+  enc.configure(cfg);
+
+  const FRAME = 960;                                     /* 20 ms à 48 kHz */
+  const total = src.length;
+  const chans = [];
+  for (let c = 0; c < ch; c++) chans.push(src.getChannelData(c));
+  for (let off = 0; off < total && !err; off += FRAME) {
+    const n = Math.min(FRAME, total - off);
+    const data = new Float32Array(FRAME * ch);           /* dernière trame complétée de silence */
+    for (let i = 0; i < n; i++) for (let c = 0; c < ch; c++) data[i * ch + c] = chans[c][off + i];
+    enc.encode(new AudioData({
+      format: 'f32', sampleRate: RATE, numberOfFrames: FRAME, numberOfChannels: ch,
+      timestamp: Math.round(off / RATE * 1e6), data,
+    }));
+    if (off % (FRAME * 400) === 0) await new Promise(r => setTimeout(r));   /* on rend la main à l'écran */
+  }
+  try { await enc.flush(); } catch (e) { err = e; }
+  try { enc.close(); } catch (_) {}
+  if (err || !packets.length) return null;
+
+  const serial = (Math.random() * 0xffffffff) >>> 0;
+  const preSkip = 312;
+  const pages = [oggPage(serial, 0, 2, 0, opusHead(ch, buf.sampleRate, preSkip)),
+                 oggPage(serial, 1, 0, 0, opusTags())];
+  let seq = 2, granule = 0;
+  for (let i = 0; i < packets.length; i++) {
+    granule += FRAME;
+    pages.push(oggPage(serial, seq++, i === packets.length - 1 ? 4 : 0, granule + preSkip, packets[i]));
+  }
+  return new Blob(pages, { type: 'audio/ogg' });
+}
+
+/* ---------- import ---------- */
+async function audioDuration(blob) {
+  try {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    const ac = new AC();
+    const b = await ac.decodeAudioData(await blob.arrayBuffer());
+    ac.close();
+    return b.duration;
+  } catch (_) { return 0; }
+}
+async function importAudioFile(file) {
+  if (file.size > AUDIO_MAX) { toast(AUD.tooBig(humanSize(file.size)), 5000); return null; }
+  toast(AUD.importing);
+  let blob = file, saved = 0;
+  /* on ne convertit que ce qui a quelque chose à gagner : repasser un MP3
+     dans un encodeur ne fait que dégrader */
+  const raw = /wav|aiff|aif|x-pcm|flac/i.test((file.type || '') + ' ' + file.name);
+  if (raw && canEncodeOpus()) {
+    toast(AUD.converting, 8000);
+    const ogg = await toOggOpus(file, 96).catch(() => null);
+    if (ogg && ogg.size < file.size) { saved = file.size - ogg.size; blob = ogg; }
+  }
+  const dur = await audioDuration(blob);
+  const id = uid();
+  try { await dbPutAudio(id, blob); } catch (_) { toast(AUD.bad); return null; }
+  if (saved) toast(AUD.gain(humanSize(saved)), 4000);
+  return { id, name: file.name.replace(/\.[^.]+$/, '').slice(0, 60), size: blob.size, type: blob.type, dur };
+}
+
+const AUDIO_RE = /\.(wav|aiff?|mp3|m4a|aac|ogg|opus|flac)$/i;
+
+$('file-audio').addEventListener('change', e => {
+  const f = e.target.files[0];
+  e.target.value = '';
+  if (!f) return;
+  const t = audioTarget;
+  audioTarget = null;
+  const it = (t && t.it) || (gview.it) || (selected && selected.type === 'grille' ? selected : null);
+  if (!it) { toast(AUD.drop, 4000); return; }
+  attachAudioToVersion(it, t ? t.version : null, f);
+});
+
+/* ---------- lecture ---------- */
+const player = { el: null, id: null, url: null, onEnd: null };
+function stopAudio() {
+  if (player.el) player.el.pause();
+  if (player.url) { URL.revokeObjectURL(player.url); player.url = null; }
+  player.id = null; player.onEnd = null;
+  for (const e of document.querySelectorAll('.playing')) e.classList.remove('playing');
+}
+async function playAudio(audioId, onEnd) {
+  if (player.id === audioId) { stopAudio(); return false; }
+  stopAudio();
+  let blob = null;
+  try { blob = await dbGetAudio(audioId); } catch (_) {}
+  if (!blob) { toast(AUD.noSound); return false; }
+  if (!player.el) {
+    player.el = new Audio();
+    player.el.addEventListener('ended', () => { const f = player.onEnd; stopAudio(); if (f) f(); });
+  }
+  player.url = URL.createObjectURL(blob);
+  player.id = audioId;
+  player.onEnd = onEnd || null;
+  player.el.src = player.url;
+  try { await player.el.play(); } catch (_) { stopAudio(); return false; }
+  return true;
+}
+
+/* ---------- versions d'un plan ---------- */
+function normVersions(list, p) {
+  return (list || []).filter(v => v).map(v => ({
+    id: String(v.id || uid()),
+    label: String(v.label || '').slice(0, 60),
+    date: +v.date || Date.now(),
+    bars: +v.bars || p.bars, bpm: +v.bpm || p.bpm,
+    sections: (v.sections || []).map(s => ({ bar: +s.bar || 1, name: String(s.name || '') })),
+    audio: v.audio ? { id: String(v.audio.id), name: String(v.audio.name || ''),
+                       size: +v.audio.size || 0, dur: +v.audio.dur || 0 } : null,
+  }));
+}
+/* Une version, c'est l'état du plan à un instant, plus le son qui va avec. */
+function snapVersion(p, label) {
+  return {
+    id: uid(), label: label || (AUD.vName + ' ' + (p.versions.length + 1)), date: Date.now(),
+    bars: p.bars, bpm: p.bpm,
+    sections: planSections(p).map(s => ({ bar: s.from, name: s.name })),
+    audio: null,
+  };
+}
+async function attachAudioToVersion(it, versionId, file) {
+  const info = await importAudioFile(file);
+  if (!info) return;
+  const p = it.plan;
+  let v = p.versions.find(x => x.id === versionId);
+  if (!v) { v = snapVersion(p, info.name); p.versions.push(v); }
+  if (v.audio) dbDelAudio(v.audio.id).catch(() => {});      /* on remplace : l'ancien son part */
+  v.audio = { id: info.id, name: info.name, size: info.size, dur: info.dur };
+  if (!v.label) v.label = info.name;
+  updateGrilleDOM(it);
+  if (gview.it === it) renderGrille();
+  scheduleSave();
+  toast(AUD.saved);
+}
+/* le dernier son connu d'un plan : ce que joue l'album */
+function lastAudioOf(plan) {
+  const v = (plan.versions || []).filter(x => x.audio).sort((a, b) => b.date - a.date)[0];
+  return v ? v.audio : null;
+}
+/* toutes les pièces sonores encore réclamées, pour le ménage */
+function referencedAudio(list) {
+  const keep = new Set();
+  for (const r of list) {
+    if (r.type !== 'grille' || !r.plan) continue;
+    for (const v of (r.plan.versions || [])) if (v.audio) keep.add(v.audio.id);
+  }
+  return keep;
 }

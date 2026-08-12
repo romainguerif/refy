@@ -802,3 +802,32 @@ body.dropping #drop-overlay { display:flex; }
   padding-top:calc(.6rem + env(safe-area-inset-top));
   background:#c8553d; color:#fff; font-size:.85rem; text-align:center; line-height:1.35;
 }
+
+/* ---------- versions entendues ---------- */
+.gvers { padding:26px 16px 0; }
+.gvers h4 { font-size:11px; letter-spacing:.14em; text-transform:uppercase; color:#8e8e90;
+  margin:0 0 8px; font-weight:600; }
+.gver { display:flex; align-items:center; gap:11px; padding:9px 0; border-bottom:1px solid #232325; }
+.gvname { flex:1; font-size:15px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.gvmeta { font-size:11px; color:#5c5c5e; white-space:nowrap; }
+.gvx { flex:none; width:26px; height:26px; background:none; border:1px solid #2e2e30; border-radius:2px;
+  color:#5c5c5e; font:inherit; font-size:14px; cursor:pointer; }
+.gvacts { display:flex; gap:6px; margin-top:12px; }
+/* un seul triangle, qui devient deux barres quand ca joue */
+.gvplay, .alplay {
+  flex:none; position:relative; width:26px; height:26px; border-radius:50%; cursor:pointer;
+  border:1px solid currentColor; background:none; color:#ececec; padding:0;
+}
+.gvplay::before, .alplay::before {
+  content:""; position:absolute; left:52%; top:50%; transform:translate(-50%,-50%);
+  border-left:7px solid currentColor; border-top:5px solid transparent; border-bottom:5px solid transparent;
+}
+.gvplay.playing::before, .alplay.playing::before {
+  left:50%; border:0; width:8px; height:9px; background:currentColor;
+  clip-path:polygon(0 0,35% 0,35% 100%,0 100%,0 0,65% 0,100% 0,100% 100%,65% 100%,65% 0);
+}
+.gvplay.off, .alplay.off { opacity:.32; }
+.gvplay.off::before { border-left-color:currentColor; }
+.alplay { width:1.15em; height:1.15em; border-color:var(--ink-soft); color:var(--ink); }
+.alplay::before { border-left-width:.36em; border-top-width:.26em; border-bottom-width:.26em; }
+.alplay.off { border-style:dashed; }

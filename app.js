@@ -224,7 +224,7 @@ function animateViewTo(tx, ty, ts) {
 }
 
 /* ============================== IndexedDB ============================== */
-const APP_V = 'v5.23';     /* affiche dans le diagnostic : sert a savoir quel code tourne */
+const APP_V = 'v5.24';     /* affiche dans le diagnostic : sert a savoir quel code tourne */
 let dbWhy = '';            /* raison precise du refus d'ouverture */
 let db = null;
 let saveBroken = '';
@@ -4071,6 +4071,7 @@ const DT = lang === 'fr' ? {
   on: 'Synchro active', syncing: 'Synchro…', ok: 'À jour', fail: 'Synchro en échec',
   offline: 'Hors ligne — reprise au retour du réseau', bye: 'Dropbox déconnecté',
   store: 'stockage', kept: 'permanent', evictable: 'EFFAÇABLE PAR LE SYSTÈME',
+  test: 'Tester la synchro', testing: 'Test en cours…',
   protect: 'Protéger de l\'effacement', used: 'utilisés', gc: 'Faire le ménage', cleaning: 'Ménage en cours…',
   clean: 'Rien à retirer, tout sert', cleaned: (n, s) => `${n} image${n > 1 ? 's' : ''} retirée${n > 1 ? 's' : ''} — ${s} libérés`,
   conflict: 'Deux versions : la plus récente est gardée, l\u2019autre est copiée dans Dropbox',
@@ -4079,6 +4080,7 @@ const DT = lang === 'fr' ? {
   on: 'Sync on', syncing: 'Syncing…', ok: 'Up to date', fail: 'Sync failed',
   offline: 'Offline — will resume', bye: 'Dropbox disconnected',
   store: 'storage', kept: 'persistent', evictable: 'CAN BE EVICTED',
+  test: 'Test sync', testing: 'Testing…',
   protect: 'Protect from erasure', used: 'used', gc: 'Clean up', cleaning: 'Cleaning…',
   clean: 'Nothing to remove', cleaned: (n, s) => `${n} image${n > 1 ? 's' : ''} removed — ${s} freed`,
   conflict: 'Two versions: newest kept, the other copied to Dropbox',
@@ -4467,6 +4469,36 @@ async function dbxGc() {
   return { removed, freed };
 }
 
+/* Aller-retour complet contre Dropbox : envoyer, relire, lister, effacer.
+   Chaque etape dit ce qu'elle a obtenu — plus de boite noire. */
+async function dbxSelfTest() {
+  const steps = [];
+  const mark = (name, ok, why) => { steps.push((ok ? '✓ ' : '✗ ') + name + (why ? ' : ' + why : '')); return ok; };
+  const probe = 'refy-test-' + Date.now();
+  const body = 'refy ' + probe;
+  try { await dbxAuth(); mark('jeton', true); }
+  catch (e) { mark('jeton', false, e.message); return steps; }
+  try { await dbxUp('/' + probe + '.txt', new Blob([body], { type: 'text/plain' })); mark('envoi', true); }
+  catch (e) { mark('envoi', false, String(e.message).slice(0, 140)); return steps; }
+  try {
+    const back = await (await dbxDown('/' + probe + '.txt')).text();
+    mark('relecture', back === body, back === body ? '' : 'contenu different');
+  } catch (e) { mark('relecture', false, String(e.message).slice(0, 140)); }
+  try { const j = await dbxRpc('files/list_folder', { path: '' }); mark('listage', true, (j.entries || []).length + ' fichiers'); }
+  catch (e) { mark('listage', false, String(e.message).slice(0, 140)); }
+  try { await dbxRpc('files/delete_v2', { path: '/' + probe + '.txt' }); mark('effacement', true); }
+  catch (e) { mark('effacement', false, String(e.message).slice(0, 140)); }
+  return steps;
+}
+async function dbxShowTest() {
+  toast(DT.testing, 6000);
+  const steps = await dbxSelfTest();
+  const ko = steps.find(x => x[0] === '✗');
+  dbxAlarm(steps.join('   '));
+  if (!ko) { const a = document.getElementById('dbx-alarm'); if (a) a.style.background = '#2f6b4f'; }
+  return !ko;
+}
+
 /* ---------- le panneau : stockage et synchro ---------- */
 async function dbxPanel() {
   const bar = $('dbx');
@@ -4480,6 +4512,7 @@ async function dbxPanel() {
     + (st.persisted ? '' : `<button class="dbtn" data-db="protect">${DT.protect}</button>`)
     + `<span class="dhint" style="display:none"></span>
        <button class="dbtn" data-db="now">${DT.now}</button>
+       <button class="dbtn" data-db="test">${DT.test}</button>
        <button class="dbtn" data-db="gc">${DT.gc}</button>
        <button class="dbtn quiet" data-db="off">${DT.off}</button>`
     : `<button class="dbtn primary" data-db="on">${DT.connect}</button>`
@@ -4492,6 +4525,7 @@ $('dbx').addEventListener('click', e => {
   const a = b.dataset.db;
   if (a === 'on') dbxConnect();
   else if (a === 'off') { dbxForget(); dbxPanel(); dbxStatus(''); toast(DT.bye); }
+  else if (a === 'test') { closePopovers(); dbxShowTest(); }
   else if (a === 'protect') {
     closePopovers();
     /* Chrome accorde le stockage permanent aux sites autorises a notifier.
@@ -4519,6 +4553,7 @@ $('dbx').addEventListener('click', e => {
   const fresh = await dbxReturn();
   if (!dbxOn()) return;
   const kick = () => dbxSync(true);
+  if (fresh) { const ok = await dbxShowTest(); if (!ok) return; }   /* verdict immediat apres connexion */
   setTimeout(kick, fresh ? 400 : 3000);        /* on laisse le reseau se lever */
   addEventListener('online', kick);
 })();

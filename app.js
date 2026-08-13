@@ -79,6 +79,7 @@ const I18N_FR = {
   arranged: 'Board rangé', cropLabel: 'Recadrer', cropFail: 'Recadrage impossible sur cette image',
   pinTitle: 'Aller à l\'élément épinglé', pinnedGone: 'Élément introuvable',
   selCount: n => `${n} sélectionné${n > 1 ? 's' : ''}`,
+  tbUndoAct: 'Annuler', tbRedoAct: 'Rétablir',
 };
 const I18N_EN = {
   mgPose: 'Add', mgMusic: 'Music', mgBoard: 'Board', mgFiles: 'Files',
@@ -128,6 +129,7 @@ const I18N_EN = {
   tbBoards: 'My boards', tbAdd: 'Add images', tbDraw: 'Pencil', tbText: 'Text', tbRot: 'Rotate 90°',
   tbFlip: 'Mirror horizontally', tbAdj: 'Adjustments', tbDel: 'Delete', tbFit: 'Fit everything',
   tbLock: 'Lock for tracing', tbMore: 'More', tbUndo: 'Undo last stroke', tbUnlock: 'Hold to unlock',
+  tbUndoAct: 'Undo', tbRedoAct: 'Redo',
   tbPresQuit: 'Exit presentation', tbBg: 'Background color', tbClose: 'Close',
   mTodo: 'Checklist', mCal: 'Calendar', mBg: 'Board background', mPres: 'Presentation',
   mDoc: 'Import a document', mPng: 'Export as PNG', mExport: 'Export board', mImport: 'Import a backup', mHelp: 'Help',
@@ -144,10 +146,10 @@ const I18N_EN = {
   hpTrace: 'An image\'s adjustments (sliders icon) offer black & white, contrast, opacity, <b>edge extraction</b> and <b>cropping</b>. The padlock freezes the whole screen and keeps it awake — <b>hold it one second</b> to unlock.',
   hpTodo: 'Checklist in the ··· menu (<kbd>L</kbd>): tap to check, double-tap a line to edit it, Enter adds the next one. The <b>Notes</b> tab of the library gathers text and checklists from every board — tap to jump there.',
   hpCal: '··· menu or <kbd>C</kbd>: a local agenda, no sync. Each event belongs to the current board; the <b>All</b> view shows every board\'s agenda. An element selected when adding is <b>pinned</b> to the event — the pin jumps back to it. Events travel with the board in backups.',
-  hpPal: '“Extract palette” in an image\'s adjustments drops a swatch card of its colors (tap a color to copy its code). From the library, the chain icon drops a link card to another board — double-tap to open it.',
+  hpPal: '“Extract palette” in an image\'s adjustments drops a swatch card of its colors (tap a color to copy its code). From the library, the chain icon drops a link card to another board — double-tap to open it. The <b>blue handle</b> on a selected element draws an arrow to any other element: drag it onto the target, or tap it then tap the target.',
   hpPres: 'Presentation mode (<kbd>P</kbd>) hides the whole interface, navigation only. “Export as PNG” flattens the board into an image.',
   hpBackup: 'Export/Import in the ··· menu: the board becomes a file on your device; importing creates a new board.',
-  hpKeys: '<kbd>B</kbd> boards · <kbd>D</kbd> pencil · <kbd>T</kbd> text · <kbd>L</kbd> checklist · <kbd>C</kbd> calendar · <kbd>P</kbd> presentation · <kbd>R</kbd> rotate · <kbd>M</kbd> mirror · <kbd>F</kbd> fit all · <kbd>G</kbd> tidy · <kbd>Cmd/Ctrl D</kbd> duplicate · <kbd>Del</kbd> delete · <kbd>Esc</kbd> close',
+  hpKeys: '<kbd>B</kbd> boards · <kbd>D</kbd> pencil · <kbd>T</kbd> text · <kbd>L</kbd> checklist · <kbd>C</kbd> calendar · <kbd>P</kbd> presentation · <kbd>R</kbd> rotate · <kbd>M</kbd> mirror · <kbd>F</kbd> fit all · <kbd>G</kbd> tidy · <kbd>Cmd/Ctrl Z</kbd> undo · <kbd>Cmd/Ctrl Shift Z</kbd> redo · <kbd>Cmd/Ctrl D</kbd> duplicate · <kbd>Del</kbd> delete · <kbd>Esc</kbd> close',
 };
 const tr = k => (lang === 'fr' ? I18N_FR : I18N_EN)[k];
 function applyI18n() {
@@ -224,7 +226,7 @@ function animateViewTo(tx, ty, ts) {
 }
 
 /* ============================== IndexedDB ============================== */
-const APP_V = 'v5.30';     /* affiche dans le diagnostic : sert a savoir quel code tourne */
+const APP_V = 'v5.31';     /* affiche dans le diagnostic : sert a savoir quel code tourne */
 let dbWhy = '';            /* raison precise du refus d'ouverture */
 let db = null;
 let saveBroken = '';
@@ -371,9 +373,64 @@ function saveState() {
   };
   const b = library.boards.find(x => x.id === library.current);
   if (b) { b.updated = Date.now(); b.count = items.length; }
+  captureHistory(state);
   Promise.all([dbPutMeta('state-' + library.current, state), dbPutMeta('library', library)])
     .catch(e => { saveBroken = String((e && e.name) || e); toast(tr('saveFull')); });
   if (typeof dbxTouch === 'function') dbxTouch();
+}
+
+/* ============================== historique (undo/redo) ==============================
+   Des instantanés complets du board : c'est déjà la forme que produit saveState, et
+   les images vivent dans IndexedDB — un instantané ne pèse que quelques Ko de JSON.
+   Les images supprimées attendent dans une corbeille tant qu'un instantané les cite,
+   pour que l'annulation d'une suppression retrouve ses pixels. */
+const HIST_MAX = 50;
+let histStack = [], histPos = -1, histBusy = false, histSkip = false;
+const imgTrash = new Set();
+
+const histSnap = (its, ars) => JSON.stringify({ items: its, arrows: ars, bg });
+function captureHistory(state) {
+  if (histSkip) return;
+  const snap = histSnap(state.items, state.arrows);
+  if (histStack[histPos] === snap) return;
+  histStack.splice(histPos + 1);              // toute branche « rétablir » saute
+  histStack.push(snap);
+  if (histStack.length > HIST_MAX) histStack.shift();
+  histPos = histStack.length - 1;
+  syncUndoUI();
+}
+function resetHistory() {
+  purgeImgTrash(true);
+  histStack = [histSnap(items.map(serializeItem), arrows.map(a => ({ id: a.id, from: a.from, to: a.to, color: a.color })))];
+  histPos = 0;
+  syncUndoUI();
+}
+function purgeImgTrash(all) {
+  for (const id of [...imgTrash]) {
+    const used = items.some(i => i.id === id) || (!all && histStack.some(s => s.includes(id)));
+    if (!used) { dbDelImage(id).catch(() => {}); imgTrash.delete(id); }
+  }
+}
+addEventListener('pagehide', () => purgeImgTrash(true)); // l'historique meurt avec la page : rien ne doit fuir
+async function restoreSnapshot(snap) {
+  let st = null;
+  try { st = JSON.parse(snap); } catch (_) { return; }
+  histBusy = true; histSkip = true;
+  ready = false;
+  clearBoardDOM();
+  await loadBoardState({ v: 4, items: st.items, arrows: st.arrows, bg: st.bg }, true);
+  ready = true;
+  saveState();                                // l'état restauré part en base, sans recapture
+  histSkip = false; histBusy = false;
+  syncUndoUI();
+}
+function doUndo() { if (!histBusy && histPos > 0) restoreSnapshot(histStack[--histPos]); }
+function doRedo() { if (!histBusy && histPos < histStack.length - 1) restoreSnapshot(histStack[++histPos]); }
+function syncUndoUI() {
+  const u = $('btn-undo'), r = $('btn-redo');
+  if (!u || !r) return;
+  u.disabled = histPos <= 0;
+  r.disabled = histPos >= histStack.length - 1;
 }
 
 /* ============================== construction des items ============================== */
@@ -384,6 +441,12 @@ function addHandles(el) {
     h.dataset.c = c;
     el.appendChild(h);
   }
+  // la poignée de liaison : tape-la puis tape la cible, ou glisse-la jusqu'à la cible
+  const l = document.createElement('div');
+  l.className = 'handle h-link';
+  l.dataset.c = 'link';
+  l.innerHTML = '<svg viewBox="0 0 24 24"><path d="M5.5 12h11"/><path d="M12.5 7.5L17 12l-4.5 4.5"/></svg>';
+  el.appendChild(l);
 }
 function strokePath(pts) {
   if (pts.length < 2) return '';
@@ -573,6 +636,7 @@ function removeItem(it, instant) {
     for (const v of (it.plan.versions || [])) if (v.audio) dbDelAudio(v.audio.id).catch(() => {});
   }
   removeArrowsOf(it.id);
+  if (linkFrom === it) setLinkFrom(null);
   if (editingText === it) commitTextEdit();
   if (editingTodo && editingTodo.it === it) commitTodoEdit();
   if (multi.has(it)) {
@@ -592,7 +656,7 @@ function removeItem(it, instant) {
   }
   if (it._edgeUrl) { URL.revokeObjectURL(it._edgeUrl); it._edgeUrl = null; }
   items.splice(items.indexOf(it), 1);
-  if (it.type === 'img') dbDelImage(it.id).catch(() => {});
+  if (it.type === 'img') imgTrash.add(it.id); // pas d'effacement immédiat : l'historique peut la rappeler
   updateHint();
   scheduleSave();
 }
@@ -1711,7 +1775,9 @@ vp.addEventListener('pointerdown', e => {
       bringToFront(it);
       const ctr = itemCenter(it);
       const pw = toWorld(e.clientX, e.clientY);
-      if (handleEl.dataset.c === 'rot') {
+      if (handleEl.dataset.c === 'link') {
+        gesture = { type: 'link', it, pid: e.pointerId, moved: false, tgt: null, start: { px: e.clientX, py: e.clientY } };
+      } else if (handleEl.dataset.c === 'rot') {
         gesture = { type: 'rotate', it, pid: e.pointerId, start: { ctr, a: Math.atan2(pw.y - ctr.y, pw.x - ctr.x), rot: it.rot } };
       } else {
         gesture = { type: 'resize', it, pid: e.pointerId, start: { ctr, d: Math.hypot(pw.x - ctr.x, pw.y - ctr.y) || 1, w: it.w, size: it.size } };
@@ -1760,7 +1826,7 @@ vp.addEventListener('pointerdown', e => {
       // (remplace), un glisser (remplace) ou un appui long (ajoute au groupe)
       if (linkFrom && linkFrom !== it) {
         addArrow(linkFrom, it);
-        linkFrom = null;
+        setLinkFrom(null);
         toast(ST.linked);
         select(it);
         return;
@@ -1866,6 +1932,19 @@ vp.addEventListener('pointermove', e => {
     g.it.x = g.start.x + (e.clientX - g.start.px) / view.s;
     g.it.y = g.start.y + (e.clientY - g.start.py) / view.s;
     renderItem(g.it);
+  } else if (g.type === 'link') {
+    if (e.pointerId !== g.pid) return;
+    if (!g.moved && Math.hypot(e.clientX - g.start.px, e.clientY - g.start.py) > 6) g.moved = true;
+    if (!g.moved) return;
+    const w = toWorld(e.clientX, e.clientY);
+    linkPreview = { it: g.it, x: w.x, y: w.y };
+    const t = linkTargetAt(e.clientX, e.clientY, g.it);
+    if (g.tgt !== t) {
+      if (g.tgt) g.tgt.el.classList.remove('link-target');
+      g.tgt = t;
+      if (t) t.el.classList.add('link-target');
+    }
+    drawArrows();
   } else if (g.type === 'pan') {
     if (e.pointerId !== g.pid) return;
     view.x = g.start.x + (e.clientX - g.start.px);
@@ -1934,6 +2013,24 @@ function endPointer(e) {
       if (e.type === 'pointercancel') cancelDraw(gesture); else finishDraw(gesture);
       gesture = null;
     }
+    return;
+  }
+  if (gesture.type === 'link') {
+    if (e.pointerId !== gesture.pid) return;
+    const g = gesture;
+    gesture = null;
+    if (g.tgt) g.tgt.el.classList.remove('link-target');
+    linkPreview = null;
+    if (e.type === 'pointerup') {
+      if (g.moved) {
+        const t = linkTargetAt(e.clientX, e.clientY, g.it);
+        if (t) { addArrow(g.it, t); toast(ST.linked); }
+      } else {
+        setLinkFrom(linkFrom === g.it ? null : g.it);
+        toast(linkFrom ? ST.pickTarget : ST.cancel);
+      }
+    }
+    drawArrows();
     return;
   }
   if (gesture.type === 'band') {
@@ -2205,6 +2302,7 @@ function setLocked(v, silent) {
   if (v) { commitTextEdit(); commitTodoEdit(); setTool(null); }
   locked = v;
   document.body.classList.toggle('locked', v);
+  setLinkFrom(null);
   select(null);
   if (gesture && gesture.type === 'draw') cancelDraw(gesture); // pas de trait fantôme
   gesture = null;
@@ -2414,9 +2512,10 @@ function clearBoardDOM() {
   updateHint();
 }
 
-/* Restaure un state de board (ou un board vide si state absent). */
-async function loadBoardState(state) {
-  setLocked(!!(state && state.locked), true);
+/* Restaure un state de board (ou un board vide si state absent).
+   keepView : restauration d'historique — la caméra et le verrou ne bougent pas. */
+async function loadBoardState(state, keepView) {
+  if (!keepView) setLocked(!!(state && state.locked), true);
   if (state && Array.isArray(state.items)) {
     for (const raw of state.items) {
       const type = raw.type || 'img';
@@ -2503,13 +2602,15 @@ async function loadBoardState(state) {
   selectedArrow = null; linkFrom = null;
   drawArrows();
   for (const it of items) if (it.type === 'album') albumRefresh(it);
-  if (state && state.view && isFinite(state.view.s) && state.view.s > 0) {
-    view.x = +state.view.x || 0; view.y = +state.view.y || 0; view.s = clamp(+state.view.s, MIN_S, MAX_S);
-  } else {
-    view.x = 0; view.y = 0; view.s = 1;
+  if (!keepView) {
+    if (state && state.view && isFinite(state.view.s) && state.view.s > 0) {
+      view.x = +state.view.x || 0; view.y = +state.view.y || 0; view.s = clamp(+state.view.s, MIN_S, MAX_S);
+    } else {
+      view.x = 0; view.y = 0; view.s = 1;
+    }
+    applyView();
   }
   bg = (state && typeof state.bg === 'string' && /^#[0-9a-f]{6}$/i.test(state.bg)) ? state.bg : bg;
-  applyView();
   applyBg();
   updateHint();
 }
@@ -2524,6 +2625,7 @@ async function switchBoard(id) {
   try { st = await dbGetMeta('state-' + id); } catch (_) {}
   await loadBoardState(st);
   ready = true;
+  resetHistory();
   dbPutMeta('library', library).catch(() => {});
   renderLibrary();
   closeLibrary();
@@ -2540,6 +2642,7 @@ function createBoard(name, forceId) {
   setLocked(false, true);
   view.x = 0; view.y = 0; view.s = 1;
   applyView();
+  resetHistory();
   saveState();
   renderLibrary();
   return id;
@@ -2576,6 +2679,7 @@ async function deleteBoard(id) {
       try { st = await dbGetMeta('state-' + library.current); } catch (_) {}
       await loadBoardState(st);
       ready = true;
+      resetHistory();
       dbPutMeta('library', library).catch(() => {});
     } else {
       library.current = null;
@@ -2892,6 +2996,8 @@ $('file-board').addEventListener('change', e => { if (e.target.files[0]) importB
 $('btn-fit').addEventListener('click', fitView);
 $('btn-del').addEventListener('click', removeSelected);
 $('btn-dup').addEventListener('click', duplicateSelection);
+$('btn-undo').addEventListener('click', doUndo);
+$('btn-redo').addEventListener('click', doRedo);
 $('btn-rot').addEventListener('click', () => rotateSelected(HALF_PI));
 $('btn-flip').addEventListener('click', flipSelected);
 $('help').addEventListener('click', e => { if (e.target === $('help')) $('help').classList.add('hidden'); });
@@ -2950,6 +3056,8 @@ document.addEventListener('keydown', e => {
   }
   if ((e.key === 'Delete' || e.key === 'Backspace') && multi.size) { e.preventDefault(); removeSelected(); }
   else if ((e.metaKey || e.ctrlKey) && e.key === 'z' && tool === 'draw') { e.preventDefault(); $('pen-undo').click(); }
+  else if ((e.metaKey || e.ctrlKey) && (e.key === 'z' || e.key === 'Z')) { e.preventDefault(); if (e.shiftKey) doRedo(); else doUndo(); }
+  else if ((e.metaKey || e.ctrlKey) && (e.key === 'y' || e.key === 'Y')) { e.preventDefault(); doRedo(); }
   else if ((e.metaKey || e.ctrlKey) && e.key === 'd' && multi.size) { e.preventDefault(); duplicateSelection(); }
   else if ((e.metaKey || e.ctrlKey) && e.key === 'a') { e.preventDefault(); selectAll(); }
   else if (e.metaKey || e.ctrlKey) { /* laisse les raccourcis navigateur */ }
@@ -2966,6 +3074,7 @@ document.addEventListener('keydown', e => {
   else if (e.key === 'l' || e.key === 'L') document.querySelector('#more button[data-act="todo"]').click();
   else if (e.key === 'Escape') {
     if (tool === 'draw') setTool(null);
+    setLinkFrom(null);
     select(null);
     $('help').classList.add('hidden');
     if (!$('grille').classList.contains('hidden')) closeGrille();
@@ -3086,6 +3195,7 @@ async function boot() {
   renderLibrary();
   updateHint();
   ready = true;
+  resetHistory();
   /* Temoin : on ecrit un compteur dans les deux tiroirs. Au demarrage suivant,
      s'ils ont disparu tous les deux, c'est le navigateur qui a vide le site ;
      s'ils sont la et que les boards ont saute, c'est refy. */
@@ -3915,9 +4025,9 @@ document.addEventListener('visibilitychange', () => {
    quand on déplace une boîte. Les réglages n'apparaissent que sur sélection. */
 
 const ST = lang === 'fr'
-  ? { link: 'Relier', pickTarget: 'Tape la boîte d\u2019arrivée', linked: 'Reliée', cancel: 'Liaison annulée',
+  ? { link: 'Relier', pickTarget: 'Tape l\u2019élément d\u2019arrivée', linked: 'Relié', cancel: 'Liaison annulée',
       solid: 'Plein', shape: 'Forme' }
-  : { link: 'Link', pickTarget: 'Tap the target box', linked: 'Linked', cancel: 'Link cancelled',
+  : { link: 'Link', pickTarget: 'Tap the target element', linked: 'Linked', cancel: 'Link cancelled',
       solid: 'Solid', shape: 'Shape' };
 
 const SHAPE_FORMS = ['rect', 'pill', 'ellipse', 'diamond'];
@@ -3967,8 +4077,24 @@ function updateShapeDOM(it, el) {
 /* ---------- les flèches ---------- */
 let arrows = [];          /* { id, from, to, color } — hors de items : rien à ranger, rien à déplacer */
 let linkFrom = null;
+let linkPreview = null;   /* { it, x, y } pendant le glisser depuis la poignée de liaison */
 let arrowRaf = null;
 let selectedArrow = null;
+
+/* la source en attente de cible garde sa poignée qui pulse */
+function setLinkFrom(it) {
+  if (linkFrom && linkFrom.el) linkFrom.el.classList.remove('linking');
+  linkFrom = it || null;
+  if (linkFrom) linkFrom.el.classList.add('linking');
+}
+/* l'élément sous le doigt, pour viser la cible d'une liaison */
+function linkTargetAt(cx, cy, self) {
+  const el = document.elementFromPoint(cx, cy);
+  const itEl = el && el.closest ? el.closest('.item') : null;
+  if (!itEl) return null;
+  const t = items.find(i => i.id === itEl.dataset.id);
+  return (t && t !== self) ? t : null;
+}
 
 function arrowLayer() {
   let svg = document.getElementById('arrows');
@@ -4012,34 +4138,65 @@ function edgePoint(bb, tx, ty) {
   const t = Math.min(sx, sy);
   return { x: cx + dx * t, y: cy + dy * t };
 }
+/* Géométrie d'une flèche : une courbe, pas une droite. Le point de contrôle est
+   décalé perpendiculairement au segment — deux flèches opposées se bombent chacune
+   de leur côté, et la pointe suit la tangente d'arrivée. */
+function arrowGeom(A, B) {
+  const ac = { x: (A.x1 + A.x2) / 2, y: (A.y1 + A.y2) / 2 };
+  const bc = { x: (B.x1 + B.x2) / 2, y: (B.y1 + B.y2) / 2 };
+  const dx = bc.x - ac.x, dy = bc.y - ac.y;
+  const cd = Math.hypot(dx, dy);
+  if (cd < 1) return null;
+  const k = Math.min(cd * 0.22, 110);          /* un arc franc, jamais un demi-cercle */
+  const cx = (ac.x + bc.x) / 2 - dy / cd * k;
+  const cy = (ac.y + bc.y) / 2 + dx / cd * k;
+  const p1 = edgePoint(A, cx, cy);
+  const p2 = edgePoint(B, cx, cy);
+  const len = Math.hypot(p2.x - p1.x, p2.y - p1.y);
+  if (len < 8) return null;
+  const ang = Math.atan2(p2.y - cy, p2.x - cx);  /* tangente d'arrivée */
+  const h = clamp(len * 0.2, 14, 30);            /* pointe large et visible */
+  const bx = p2.x - Math.cos(ang) * h * 0.8, by = p2.y - Math.sin(ang) * h * 0.8;
+  const nx = -Math.sin(ang) * h * 0.5, ny = Math.cos(ang) * h * 0.5;
+  return {
+    line: `M${p1.x} ${p1.y} Q${cx} ${cy} ${bx} ${by}`,
+    hit: `M${p1.x} ${p1.y} Q${cx} ${cy} ${p2.x} ${p2.y}`,
+    head: `M${p2.x} ${p2.y} L${bx + nx} ${by + ny} L${bx - nx} ${by - ny} Z`,
+    /* milieu de la courbe, pour la croix de suppression */
+    mid: { x: 0.25 * p1.x + 0.5 * cx + 0.25 * p2.x, y: 0.25 * p1.y + 0.5 * cy + 0.25 * p2.y },
+  };
+}
 function drawArrows() {
   const svg = arrowLayer();
   const byId = new Map(items.map(i => [i.id, i]));
   arrows = arrows.filter(a => byId.has(a.from) && byId.has(a.to));
   let out = '';
   for (const a of arrows) {
-    const A = itemBBox(byId.get(a.from)), B = itemBBox(byId.get(a.to));
-    const ac = { x: (A.x1 + A.x2) / 2, y: (A.y1 + A.y2) / 2 };
-    const bc = { x: (B.x1 + B.x2) / 2, y: (B.y1 + B.y2) / 2 };
-    const p1 = edgePoint(A, bc.x, bc.y);
-    const p2 = edgePoint(B, ac.x, ac.y);
-    const ang = Math.atan2(p2.y - p1.y, p2.x - p1.x);
-    const len = Math.hypot(p2.x - p1.x, p2.y - p1.y);
-    if (len < 6) continue;
-    const h = clamp(len * 0.14, 9, 18);          /* pointe proportionnée, jamais énorme */
-    const bx = p2.x - Math.cos(ang) * h, by = p2.y - Math.sin(ang) * h;
-    const nx = -Math.sin(ang) * h * 0.42, ny = Math.cos(ang) * h * 0.42;
+    const gm = arrowGeom(itemBBox(byId.get(a.from)), itemBBox(byId.get(a.to)));
+    if (!gm) continue;
     const col = (SHAPE_COLORS[a.color] || SHAPE_COLORS.graphite).i;
     const sel = a.id === selectedArrow ? ' sel' : '';
     out += `<g class="arw${sel}" data-a="${a.id}" style="--ac:${col}">
-      <line class="ahit" x1="${p1.x}" y1="${p1.y}" x2="${p2.x}" y2="${p2.y}"></line>
-      <line class="aline" x1="${p1.x}" y1="${p1.y}" x2="${bx}" y2="${by}"></line>
-      <path class="ahead" d="M${p2.x} ${p2.y} L${bx + nx} ${by + ny} L${bx - nx} ${by - ny} Z"></path>
+      <path class="ahit" d="${gm.hit}"></path>
+      <path class="aline" d="${gm.line}"></path>
+      <path class="ahead" d="${gm.head}"></path>
     </g>`;
     if (sel) {
-      const mx = (p1.x + p2.x) / 2, my = (p1.y + p2.y) / 2;
-      out += `<g class="axk" data-ax="${a.id}"><circle cx="${mx}" cy="${my}" r="11"></circle>
-        <path d="M${mx - 4} ${my - 4} L${mx + 4} ${my + 4} M${mx + 4} ${my - 4} L${mx - 4} ${my + 4}"></path></g>`;
+      out += `<g class="axk" data-ax="${a.id}"><circle cx="${gm.mid.x}" cy="${gm.mid.y}" r="11"></circle>
+        <path d="M${gm.mid.x - 4} ${gm.mid.y - 4} L${gm.mid.x + 4} ${gm.mid.y + 4} M${gm.mid.x + 4} ${gm.mid.y - 4} L${gm.mid.x - 4} ${gm.mid.y + 4}"></path></g>`;
+    }
+  }
+  /* l'aperçu pendant le glisser : même courbe, en pointillés */
+  if (linkPreview) {
+    const A = itemBBox(linkPreview.it);
+    const B = { x1: linkPreview.x, y1: linkPreview.y, x2: linkPreview.x, y2: linkPreview.y };
+    const gm = arrowGeom(A, B);
+    if (gm) {
+      const col = (SHAPE_COLORS[linkPreview.it.type === 'shape' ? linkPreview.it.color : 'graphite'] || SHAPE_COLORS.graphite).i;
+      out += `<g class="arw preview" style="--ac:${col}">
+        <path class="aline" d="${gm.line}"></path>
+        <path class="ahead" d="${gm.head}"></path>
+      </g>`;
     }
   }
   svg.innerHTML = out;
@@ -4075,7 +4232,7 @@ $('shapebar').addEventListener('click', e => {
     drawArrows();
   } else if (b.dataset.sfill) it.fill = !it.fill;
   else if (b.dataset.slink) {
-    linkFrom = linkFrom === it ? null : it;
+    setLinkFrom(linkFrom === it ? null : it);
     toast(linkFrom ? ST.pickTarget : ST.cancel);
   }
   updateShapeDOM(it);
@@ -4363,6 +4520,7 @@ async function dbxPullBoard(id, data) {
   } catch (_) {}
   clearBoardDOM();
   await loadBoardState({ v: 4, items: st.items, arrows: st.arrows, view: st.view, bg: st.bg });
+  resetHistory();                    // l'état distant est la nouvelle référence
   const b = boardMeta(id);
   if (b) { b.name = st.name || b.name; b.updated = st.updated || Date.now(); }
   const meta = dbxMeta();

@@ -38,6 +38,12 @@
     <button id="btn-text" title="Texte" data-i18n-title="tbText">
       <svg class="ic" viewBox="0 0 24 24"><path d="M5 6V4h14v2M12 4v16M9.5 20h5"/></svg>
     </button>
+    <button id="btn-undo" title="Annuler" data-i18n-title="tbUndoAct" disabled>
+      <svg class="ic" viewBox="0 0 24 24"><path d="M8 6.5L4.5 10 8 13.5"/><path d="M4.5 10h9.3a5.35 5.35 0 0 1 0 10.7H10"/></svg>
+    </button>
+    <button id="btn-redo" title="Rétablir" data-i18n-title="tbRedoAct" disabled>
+      <svg class="ic" viewBox="0 0 24 24"><path d="M16 6.5L19.5 10 16 13.5"/><path d="M19.5 10h-9.3a5.35 5.35 0 0 0 0 10.7H14"/></svg>
+    </button>
     <div class="sep" id="ctx-sep"></div>
     <div id="ctx">
       <button id="btn-rot" title="Pivoter de 90°" data-i18n-title="tbRot">
@@ -194,13 +200,13 @@
       <h3 data-i18n="htCal">Calendrier</h3>
       <p data-i18n-html="hpCal">Menu ··· ou <kbd>C</kbd> : un agenda local, sans synchronisation. Chaque événement appartient au board courant ; la vue <b>Tous</b> montre l'agenda de tous les boards. Un élément sélectionné au moment de l'ajout est <b>épinglé</b> à l'événement — l'épingle y ramène d'un tap. Les événements partent avec le board dans les backups.</p>
       <h3 data-i18n="htPal">Palette &amp; liens</h3>
-      <p data-i18n-html="hpPal">« Extraire la palette » dans les réglages d'une image pose un nuancier de ses couleurs (tape une couleur pour copier son code). Depuis la librairie, l'icône chaîne pose une carte-lien vers un autre board — double-tape pour l'ouvrir.</p>
+      <p data-i18n-html="hpPal">« Extraire la palette » dans les réglages d'une image pose un nuancier de ses couleurs (tape une couleur pour copier son code). Depuis la librairie, l'icône chaîne pose une carte-lien vers un autre board — double-tape pour l'ouvrir. La <b>poignée bleue</b> d'un élément sélectionné trace une flèche vers n'importe quel autre élément : glisse-la jusqu'à la cible, ou tape-la puis tape la cible.</p>
       <h3 data-i18n="htPres">Présentation &amp; export</h3>
       <p data-i18n-html="hpPres">Le mode présentation (<kbd>P</kbd>) masque toute l'interface, navigation seule. « Exporter en PNG » aplatit le board en une image.</p>
       <h3 data-i18n="htBackup">Backup</h3>
       <p data-i18n-html="hpBackup">Exporter/Importer dans le menu ··· : le board devient un fichier sur l'appareil ; l'import crée un nouveau board.</p>
       <h3 data-i18n="htKeys">Clavier</h3>
-      <p data-i18n-html="hpKeys"><kbd>B</kbd> boards · <kbd>D</kbd> crayon · <kbd>T</kbd> texte · <kbd>L</kbd> checklist · <kbd>C</kbd> calendrier · <kbd>P</kbd> présentation · <kbd>R</kbd> pivoter · <kbd>M</kbd> miroir · <kbd>F</kbd> tout afficher · <kbd>G</kbd> ranger · <kbd>Cmd/Ctrl D</kbd> dupliquer · <kbd>Suppr</kbd> supprimer · <kbd>Échap</kbd> fermer</p>
+      <p data-i18n-html="hpKeys"><kbd>B</kbd> boards · <kbd>D</kbd> crayon · <kbd>T</kbd> texte · <kbd>L</kbd> checklist · <kbd>C</kbd> calendrier · <kbd>P</kbd> présentation · <kbd>R</kbd> pivoter · <kbd>M</kbd> miroir · <kbd>F</kbd> tout afficher · <kbd>G</kbd> ranger · <kbd>Cmd/Ctrl Z</kbd> annuler · <kbd>Cmd/Ctrl Maj Z</kbd> rétablir · <kbd>Cmd/Ctrl D</kbd> dupliquer · <kbd>Suppr</kbd> supprimer · <kbd>Échap</kbd> fermer</p>
       <button class="danger" id="btn-clear" data-i18n="clearBtn">Vider ce board</button>
     </div>
   </div>

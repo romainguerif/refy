@@ -99,6 +99,26 @@ body.locked .item.selected { outline:none; }
 .h-rot { left:50%; top:0; transform:translate(-50%, calc(-100% - 18px / var(--vs,1))); cursor:grab; }
 .h-rot::after { inset:26%; background:var(--ink); border-color:#fff; }
 
+/* la poignée de liaison : une pastille bleue à droite de l'élément sélectionné.
+   Tape-la puis tape la cible, ou glisse-la directement jusqu'à la cible. */
+.h-link { right:0; top:50%; transform:translate(calc(55% + 8px / var(--vs,1)), -50%); cursor:alias; }
+.h-link::after { inset:8%; background:var(--accent); border-color:rgba(255,255,255,.85); box-shadow:0 calc(1px/var(--vs,1)) calc(5px/var(--vs,1)) rgba(0,0,0,.35); }
+.h-link svg {
+  position:absolute; inset:24%; z-index:1; fill:none; stroke:#fff;
+  stroke-width:2.4; stroke-linecap:round; stroke-linejoin:round;
+}
+/* à la sélection, la pastille émet deux ondes — subtil mais visible */
+@keyframes linkping {
+  0% { box-shadow:0 calc(1px/var(--vs,1)) calc(5px/var(--vs,1)) rgba(0,0,0,.35), 0 0 0 0 rgba(43,78,230,.5); }
+  100% { box-shadow:0 calc(1px/var(--vs,1)) calc(5px/var(--vs,1)) rgba(0,0,0,.35), 0 0 0 calc(11px/var(--vs,1)) rgba(43,78,230,0); }
+}
+.item.selected .h-link::after { animation:linkping 1.1s var(--swift) .35s 2; }
+/* source en attente de cible : l'onde ne s'arrête plus */
+.item.linking .h-link { display:block; }
+.item.linking .h-link::after { animation:linkping 1.1s var(--swift) infinite; }
+/* la cible survolée pendant le glisser */
+.item.link-target { outline:calc(2.5px/var(--vs,1)) solid var(--accent); outline-offset:calc(2px/var(--vs,1)); }
+
 /* ---------- barre d'outils ---------- */
 @keyframes bar-in { from { opacity:0; transform:translateX(-50%) translateY(80px); } }
 #toolbar {
@@ -120,6 +140,7 @@ body.locked #toolbar { opacity:0; transform:translateX(-50%) translateY(90px); p
 }
 @media (hover:hover) { #toolbar button:hover { background:rgba(22,22,22,.07); } }
 #toolbar button:active { background:rgba(22,22,22,.14); transform:scale(.88); }
+#toolbar button:disabled { opacity:.26; pointer-events:none; }
 #toolbar button.tb-active { background:var(--ink); color:var(--paper); }
 #toolbar .sep { width:1px; height:24px; background:var(--hair); margin:0 5px; flex:none; }
 #ctx { display:none; align-items:center; gap:1px; }
@@ -717,12 +738,16 @@ body.dropping #drop-overlay { display:flex; }
 .item.shape[data-c="sable"]    { --c:#706755; --t:#E7E1D4; }
 
 /* ---------- flèches ---------- */
+/* courbes, épaisses, arrondies : des flèches qu'on voit */
 #arrows { position:absolute; left:0; top:0; pointer-events:none; }
 #arrows .arw { pointer-events:auto; --ac:#161616; }
-.ahit { stroke:transparent; stroke-width:18; fill:none; }
-.aline { stroke:var(--ac); stroke-width:2.4; fill:none; stroke-linecap:round; }
-.ahead { fill:var(--ac); }
-.arw.sel .aline { stroke-width:3.6; }
+.ahit { stroke:transparent; stroke-width:26; fill:none; }
+.aline { stroke:var(--ac); stroke-width:3.5; fill:none; stroke-linecap:round; stroke-linejoin:round; }
+.ahead { fill:var(--ac); stroke:var(--ac); stroke-width:3; stroke-linejoin:round; }
+.arw.sel .aline { stroke-width:5; }
+/* l'aperçu pendant le glisser depuis la poignée */
+.arw.preview { pointer-events:none; opacity:.75; }
+.arw.preview .aline { stroke-dasharray:8 8; }
 .axk { pointer-events:auto; cursor:pointer; }
 .axk circle { fill:var(--paper); stroke:var(--ac); stroke-width:1.6; }
 .axk path { stroke:var(--ac); stroke-width:1.8; stroke-linecap:round; fill:none; }
